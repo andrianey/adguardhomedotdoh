@@ -1,0 +1,5 @@
+# Ignore scripts directory
+scripts/
+
+# Ignore IDE files
+.idea/

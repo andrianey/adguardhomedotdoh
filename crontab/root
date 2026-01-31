@@ -1,0 +1,10 @@
+# Root hints update for Unbound (every 6 months on the 1st at 00:01)
+# Note: Cron is not available in the Wolfi container by default
+# These tasks should be handled externally or via a sidecar container
+# 
+# Original cron entries (for reference):
+# 1 0 1 */6 * wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root
+# 
+# Cloudflared update (Fridays at 03:00)
+# Note: Container should be rebuilt to update cloudflared
+# 0 3 * * FRI cloudflared update

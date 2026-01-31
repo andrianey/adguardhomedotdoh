@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  adguardhome:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: adguardhome-doh-dot-wolfi:latest
+    container_name: adguardhome
+    hostname: adguard-wolfi
+    environment:
+      - TZ=${TZ:-Asia/Jakarta}
+    volumes:
+      - ./adguardhome/conf:/opt/adguardhome/conf
+      - ./adguardhome/work:/opt/adguardhome/work
+    ports:
+      # DNS (TCP/UDP)
+      - "53:53/tcp"
+      - "53:53/udp"
+      # DNS-over-TLS
+      - "853:853/tcp"
+      # DNS-over-HTTPS
+      - "443:443/tcp"
+      # DNS-over-QUIC
+      - "784:784/udp"
+      - "8853:8853/udp"
+      # AdGuard Home Admin Panel
+      - "3000:3000/tcp"
+    # For macvlan network (uncomment if needed)
+    # networks:
+    #   macvlan0:
+    #     ipv4_address: 192.168.1.110
+    restart: unless-stopped
+    # Security options for Wolfi container
+    security_opt:
+      - no-new-privileges:true
+    # Read-only root filesystem (optional, for extra security)
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
+    #   - /var/log
+
+# Uncomment for macvlan network configuration
+# networks:
+#   macvlan0:
+#     driver: macvlan
+#     driver_opts:
+#       parent: eth0
+#     ipam:
+#       config:
+#         - subnet: 192.168.1.0/24
+#           gateway: 192.168.1.1
+#           ip_range: 192.168.1.100/28
+#           aux_addresses:
+#             host: 192.168.1.100

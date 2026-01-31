@@ -1,0 +1,193 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 6.32kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for cgr.dev/chainguard/wolfi-base:latest
+#2 DONE 0.2s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 347B 0.0s done
+#3 DONE 0.0s
+
+#4 [builder_adguard 1/4] FROM cgr.dev/chainguard/wolfi-base:latest@sha256:17ab0709456ce1a2aedd85e95f72e58d73133bb70c33ae945a4d4b2424e984f1
+#4 resolve cgr.dev/chainguard/wolfi-base:latest@sha256:17ab0709456ce1a2aedd85e95f72e58d73133bb70c33ae945a4d4b2424e984f1 0.0s done
+#4 CACHED
+
+#5 [internal] load build context
+#5 transferring context: 211B done
+#5 DONE 0.0s
+
+#6 [builder_stubby 2/4] RUN cat /etc/apk/repositories &&     apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#6 0.279 https://apk.cgr.dev/chainguard
+#6 0.286 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#6 ...
+
+#7 [builder_adguard 2/4] RUN apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#7 0.291 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#7 ...
+
+#6 [builder_stubby 2/4] RUN cat /etc/apk/repositories &&     apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#6 24.85 fetch https://apk.cgr.dev/chainguard/x86_64/APKINDEX.tar.gz
+#6 ...
+
+#7 [builder_adguard 2/4] RUN apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#7 24.94 fetch https://apk.cgr.dev/chainguard/x86_64/APKINDEX.tar.gz
+#7 ...
+
+#6 [builder_stubby 2/4] RUN cat /etc/apk/repositories &&     apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#6 46.60 (1/1) Installing wget (1.25.0-r7)
+#6 48.05 Executing busybox-1.37.0-r53.trigger
+#6 48.08 OK: 16 MiB in 16 packages
+#6 48.29 --2026-01-30 17:24:40--  https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+#6 48.30 Resolving packages.wolfi.dev... 34.160.111.32
+#6 48.30 Connecting to packages.wolfi.dev|34.160.111.32|:443... connected.
+#6 48.63 HTTP request sent, awaiting response... 200 OK
+#6 48.77 Length: 800 [application/vnd.exstream-package]
+#6 48.77 Saving to: '/etc/apk/keys/wolfi-signing.rsa.pub'
+#6 48.77 
+#6 48.77      0K                                                       100% 14.1M=0s
+#6 48.77 
+#6 48.77 2026-01-30 17:24:41 (14.1 MB/s) - '/etc/apk/keys/wolfi-signing.rsa.pub' saved [800/800]
+#6 48.77 
+#6 DONE 48.8s
+
+#8 [builder_stubby 3/4] RUN apk update && apk add --no-cache     build-base     cmake     git     openssl-dev     libevent-dev     yaml-dev     check-dev     libidn2-dev     gettext-dev
+#8 0.455 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#8 ...
+
+#7 [builder_adguard 2/4] RUN apk add --no-cache --repository https://packages.wolfi.dev/os         --allow-untrusted wget &&     wget -O /etc/apk/keys/wolfi-signing.rsa.pub https://packages.wolfi.dev/os/wolfi-signing.rsa.pub &&     echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+#7 51.16 (1/1) Installing wget (1.25.0-r7)
+#7 53.81 Executing busybox-1.37.0-r53.trigger
+#7 53.84 OK: 16 MiB in 16 packages
+#7 54.05 --2026-01-30 17:24:46--  https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+#7 54.07 Resolving packages.wolfi.dev... 34.160.111.32
+#7 54.07 Connecting to packages.wolfi.dev|34.160.111.32|:443... connected.
+#7 55.03 HTTP request sent, awaiting response... 200 OK
+#7 55.66 Length: 800 [application/vnd.exstream-package]
+#7 55.66 Saving to: '/etc/apk/keys/wolfi-signing.rsa.pub'
+#7 55.66 
+#7 55.66      0K                                                       100% 6.69M=0s
+#7 55.66 
+#7 55.66 2026-01-30 17:24:48 (6.69 MB/s) - '/etc/apk/keys/wolfi-signing.rsa.pub' saved [800/800]
+#7 55.66 
+#7 DONE 55.7s
+
+#9 [builder_adguard 3/4] RUN apk update && apk add --no-cache     wget     gnutar     gzip     ca-certificates
+#9 0.489 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#9 ...
+
+#10 [final  3/14] RUN apk update && apk add --no-cache     bash     ca-certificates     openssl     libevent     yaml     libidn2     unbound     wget     tini     tzdata
+#10 0.479 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#10 ...
+
+#8 [builder_stubby 3/4] RUN apk update && apk add --no-cache     build-base     cmake     git     openssl-dev     libevent-dev     yaml-dev     check-dev     libidn2-dev     gettext-dev
+#8 32.17  [https://packages.wolfi.dev/os]
+#8 32.17 OK: 145811 distinct packages available
+#8 32.36 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#8 ...
+
+#9 [builder_adguard 3/4] RUN apk update && apk add --no-cache     wget     gnutar     gzip     ca-certificates
+#9 33.75  [https://packages.wolfi.dev/os]
+#9 33.75 OK: 145811 distinct packages available
+#9 33.89 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#9 ...
+
+#10 [final  3/14] RUN apk update && apk add --no-cache     bash     ca-certificates     openssl     libevent     yaml     libidn2     unbound     wget     tini     tzdata
+#10 39.38  [https://packages.wolfi.dev/os]
+#10 39.38 OK: 145811 distinct packages available
+#10 39.54 fetch https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz
+#10 ...
+
+#9 [builder_adguard 3/4] RUN apk update && apk add --no-cache     wget     gnutar     gzip     ca-certificates
+#9 64.65 (1/4) Installing ca-certificates (20251003-r3)
+#9 65.64 (2/4) Installing gnutar-rmt (1.35-r7)
+#9 66.71 (3/4) Installing gnutar (1.35-r7)
+#9 70.45 (4/4) Installing gzip (1.14-r2)
+#9 70.80 Executing busybox-1.37.0-r53.trigger
+#9 70.83 OK: 20 MiB in 20 packages
+#9 DONE 71.1s
+
+#10 [final  3/14] RUN apk update && apk add --no-cache     bash     ca-certificates     openssl     libevent     yaml     libidn2     unbound     wget     tini     tzdata
+#10 69.57 (1/17) Installing ncurses-terminfo-base (6.6_p20251230-r0)
+#10 70.69 (2/17) Installing ncurses (6.6_p20251230-r0)
+#10 71.40 (3/17) Installing bash (5.3-r4)
+#10 74.05 (4/17) Installing ca-certificates (20251003-r3)
+#10 ...
+
+#8 [builder_stubby 3/4] RUN apk update && apk add --no-cache     build-base     cmake     git     openssl-dev     libevent-dev     yaml-dev     check-dev     libidn2-dev     gettext-dev
+#8 71.72 (1/75) Installing libstdc++ (15.2.0-r6)
+#8 74.80 (2/75) Installing libzstd1 (1.5.7-r5)
+#8 77.48 (3/75) Installing binutils (2.45.1-r2)
+#8 ...
+
+#11 [builder_adguard 4/4] RUN set -eux;     ARCH="$(uname -m)";     case "$ARCH" in         aarch64|arm64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz";             ;;         armv7l|armhf)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz";             ;;         x86_64|amd64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz";             ;;         *)             echo "Unsupported architecture: $ARCH";             exit 1;             ;;     esac;     wget -qO /tmp/adguardhome.tar.gz "${AGH_URL}";     tar -xzf /tmp/adguardhome.tar.gz -C /tmp;     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome;     chmod +x /usr/local/bin/AdGuardHome
+#11 0.288 + uname -m
+#11 0.289 + ARCH=x86_64
+#11 0.289 + AGH_URL=https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz
+#11 0.289 + wget -qO /tmp/adguardhome.tar.gz https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz
+#11 ...
+
+#10 [final  3/14] RUN apk update && apk add --no-cache     bash     ca-certificates     openssl     libevent     yaml     libidn2     unbound     wget     tini     tzdata
+#10 75.59 (5/17) Installing libevent (2.1.12-r8)
+#10 78.64 (6/17) Installing libunistring (1.4.1-r1)
+#10 82.49 (7/17) Installing libidn2 (2.3.8-r3)
+#10 84.44 (8/17) Installing openssl (3.6.1-r0)
+#10 88.02 (9/17) Installing tini (0.19.0-r22)
+#10 89.52 (10/17) Installing tzdata (2025c-r0)
+#10 92.63 (11/17) Installing bash-binsh (5.3-r4)
+#10 94.00 (12/17) Installing libexpat1 (2.7.3-r0)
+#10 96.25 (13/17) Installing libsodium (1.0.21-r0)
+#10 ...
+
+#11 [builder_adguard 4/4] RUN set -eux;     ARCH="$(uname -m)";     case "$ARCH" in         aarch64|arm64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz";             ;;         armv7l|armhf)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz";             ;;         x86_64|amd64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz";             ;;         *)             echo "Unsupported architecture: $ARCH";             exit 1;             ;;     esac;     wget -qO /tmp/adguardhome.tar.gz "${AGH_URL}";     tar -xzf /tmp/adguardhome.tar.gz -C /tmp;     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome;     chmod +x /usr/local/bin/AdGuardHome
+#11 27.11 + tar -xzf /tmp/adguardhome.tar.gz -C /tmp
+#11 27.34 + mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome
+#11 27.34 mv: can't rename '/tmp/AdGuardHome/AdGuardHome': No such file or directory
+#11 ERROR: process "/bin/sh -c set -eux;     ARCH=\"$(uname -m)\";     case \"$ARCH\" in         aarch64|arm64)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz\";             ;;         armv7l|armhf)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz\";             ;;         x86_64|amd64)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz\";             ;;         *)             echo \"Unsupported architecture: $ARCH\";             exit 1;             ;;     esac;     wget -qO /tmp/adguardhome.tar.gz \"${AGH_URL}\";     tar -xzf /tmp/adguardhome.tar.gz -C /tmp;     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome;     chmod +x /usr/local/bin/AdGuardHome" did not complete successfully: exit code: 1
+
+#8 [builder_stubby 3/4] RUN apk update && apk add --no-cache     build-base     cmake     git     openssl-dev     libevent-dev     yaml-dev     check-dev     libidn2-dev     gettext-dev
+#8 CANCELED
+
+#10 [final  3/14] RUN apk update && apk add --no-cache     bash     ca-certificates     openssl     libevent     yaml     libidn2     unbound     wget     tini     tzdata
+#10 CANCELED
+------
+ > [builder_adguard 4/4] RUN set -eux;     ARCH="$(uname -m)";     case "$ARCH" in         aarch64|arm64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz";             ;;         armv7l|armhf)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz";             ;;         x86_64|amd64)             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz";             ;;         *)             echo "Unsupported architecture: $ARCH";             exit 1;             ;;     esac;     wget -qO /tmp/adguardhome.tar.gz "${AGH_URL}";     tar -xzf /tmp/adguardhome.tar.gz -C /tmp;     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome;     chmod +x /usr/local/bin/AdGuardHome:
+0.288 + uname -m
+0.289 + ARCH=x86_64
+0.289 + AGH_URL=https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz
+0.289 + wget -qO /tmp/adguardhome.tar.gz https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz
+27.11 + tar -xzf /tmp/adguardhome.tar.gz -C /tmp
+27.34 + mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome
+27.34 mv: can't rename '/tmp/AdGuardHome/AdGuardHome': No such file or directory
+------
+Dockerfile:61
+--------------------
+  60 |     # Download AdGuard Home based on architecture
+  61 | >>> RUN set -eux; \
+  62 | >>>     ARCH="$(uname -m)"; \
+  63 | >>>     case "$ARCH" in \
+  64 | >>>         aarch64|arm64) \
+  65 | >>>             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz"; \
+  66 | >>>             ;; \
+  67 | >>>         armv7l|armhf) \
+  68 | >>>             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz"; \
+  69 | >>>             ;; \
+  70 | >>>         x86_64|amd64) \
+  71 | >>>             AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"; \
+  72 | >>>             ;; \
+  73 | >>>         *) \
+  74 | >>>             echo "Unsupported architecture: $ARCH"; \
+  75 | >>>             exit 1; \
+  76 | >>>             ;; \
+  77 | >>>     esac; \
+  78 | >>>     wget -qO /tmp/adguardhome.tar.gz "${AGH_URL}"; \
+  79 | >>>     tar -xzf /tmp/adguardhome.tar.gz -C /tmp; \
+  80 | >>>     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome; \
+  81 | >>>     chmod +x /usr/local/bin/AdGuardHome
+  82 |     
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c set -eux;     ARCH=\"$(uname -m)\";     case \"$ARCH\" in         aarch64|arm64)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz\";             ;;         armv7l|armhf)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz\";             ;;         x86_64|amd64)             AGH_URL=\"https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz\";             ;;         *)             echo \"Unsupported architecture: $ARCH\";             exit 1;             ;;     esac;     wget -qO /tmp/adguardhome.tar.gz \"${AGH_URL}\";     tar -xzf /tmp/adguardhome.tar.gz -C /tmp;     mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome;     chmod +x /usr/local/bin/AdGuardHome" did not complete successfully: exit code: 1
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/yubov6s657lpnkt2twuvzm3y1
