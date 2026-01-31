@@ -31,9 +31,9 @@ RUN git clone https://github.com/getdnsapi/getdns.git /tmp/getdns \
     && git submodule update --init \
     && mkdir build && cd build \
     && cmake -DBUILD_STUBBY=ON \
-             -DCMAKE_INSTALL_PREFIX=/usr/local \
-             -DENABLE_STUB_ONLY=ON \
-             .. \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DENABLE_STUB_ONLY=ON \
+    .. \
     && make -j$(nproc) \
     && make install
 
@@ -51,19 +51,19 @@ RUN set -eux; \
     ARCH="$(uname -m)"; \
     echo "Detected architecture: $ARCH"; \
     case "$ARCH" in \
-        aarch64|arm64) \
-            AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz"; \
-            ;; \
-        armv7l|armhf) \
-            AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz"; \
-            ;; \
-        x86_64|amd64) \
-            AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"; \
-            ;; \
-        *) \
-            echo "Unsupported architecture: $ARCH"; \
-            exit 1; \
-            ;; \
+    aarch64|arm64) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz"; \
+    ;; \
+    armv7l|armhf) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz"; \
+    ;; \
+    x86_64|amd64) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"; \
+    ;; \
+    *) \
+    echo "Unsupported architecture: $ARCH"; \
+    exit 1; \
+    ;; \
     esac; \
     echo "Downloading AdGuard Home from: ${AGH_URL}"; \
     wget -O /tmp/adguardhome.tar.gz "${AGH_URL}"; \
@@ -83,19 +83,19 @@ RUN apk update && apk add --no-cache wget ca-certificates
 RUN set -eux; \
     ARCH="$(uname -m)"; \
     case "$ARCH" in \
-        aarch64|arm64) \
-            CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"; \
-            ;; \
-        armv7l|armhf) \
-            CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm"; \
-            ;; \
-        x86_64|amd64) \
-            CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"; \
-            ;; \
-        *) \
-            echo "Unsupported architecture: $ARCH"; \
-            exit 1; \
-            ;; \
+    aarch64|arm64) \
+    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"; \
+    ;; \
+    armv7l|armhf) \
+    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm"; \
+    ;; \
+    x86_64|amd64) \
+    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"; \
+    ;; \
+    *) \
+    echo "Unsupported architecture: $ARCH"; \
+    exit 1; \
+    ;; \
     esac; \
     wget -O /usr/local/bin/cloudflared "${CL_URL}"; \
     chmod +x /usr/local/bin/cloudflared
@@ -108,28 +108,28 @@ RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 # -----------------------------------------------------------------------------
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
-LABEL maintainer="Your Name <your@email.com>"
+LABEL maintainer="andrianey"
 LABEL name="adguardhome-doh-dot-wolfi"
 LABEL description="AdGuard Home with DoT/DoH support using Stubby, Unbound, and Cloudflared on Wolfi"
 
 # Install runtime dependencies from Wolfi repos with retry
 RUN set -e; \
     for i in 1 2 3 4 5; do \
-        echo "Attempt $i: Installing runtime dependencies..."; \
-        apk add --no-cache --repository https://packages.wolfi.dev/os \
-            --allow-untrusted \
-            bash \
-            ca-certificates \
-            openssl \
-            libevent \
-            yaml \
-            libidn2 \
-            unbound \
-            tini \
-            tzdata \
-            glibc \
-            libssl3 && break || \
-        (echo "Retry $i failed, waiting 15s..."; sleep 15); \
+    echo "Attempt $i: Installing runtime dependencies..."; \
+    apk add --no-cache --repository https://packages.wolfi.dev/os \
+    --allow-untrusted \
+    bash \
+    ca-certificates \
+    openssl \
+    libevent \
+    yaml \
+    libidn2 \
+    unbound \
+    tini \
+    tzdata \
+    glibc \
+    libssl3 && break || \
+    (echo "Retry $i failed, waiting 15s..."; sleep 15); \
     done
 
 # Create necessary directories and device nodes
@@ -165,7 +165,7 @@ COPY stubby/stubby.yml /etc/stubby/stubby.yml
 
 # Copy entrypoint script
 COPY distribution/entrypoint.sh /opt/entrypoint.sh
-RUN chmod +x /opt/entrypoint.sh
+RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
 
 # Set permissions
 RUN chmod 700 /opt/adguardhome/work \
