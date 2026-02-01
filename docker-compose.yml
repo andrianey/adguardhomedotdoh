@@ -2,11 +2,8 @@ version: "3.8"
 
 services:
   adguardhome:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: adguardhome-doh-dot-wolfi:latest
-    container_name: adguardhome
+    image: andrianey/adguardhomedotdoh:latest-wolfi
+    container_name: adguardhome-wolfi
     hostname: adguard-wolfi
     environment:
       - TZ=${TZ:-Asia/Jakarta}
@@ -40,16 +37,16 @@ services:
     #   - /tmp
     #   - /var/log
 
-# Uncomment for macvlan network configuration
-# networks:
-#   macvlan0:
-#     driver: macvlan
-#     driver_opts:
-#       parent: eth0
-#     ipam:
-#       config:
-#         - subnet: 192.168.1.0/24
-#           gateway: 192.168.1.1
-#           ip_range: 192.168.1.100/28
-#           aux_addresses:
-#             host: 192.168.1.100
+    # Uncomment for macvlan network configuration
+    # networks:
+    #   macvlan0:
+    #     driver: macvlan
+    #     driver_opts:
+    #       parent: eth0
+    #     ipam:
+    #       config:
+    #         - subnet: 192.168.1.0/24
+    #           gateway: 192.168.1.1
+    #           ip_range: 192.168.1.100/28
+    #           aux_addresses:
+    #             host: 192.168.1.100
