@@ -11,8 +11,6 @@ services:
         ipv4_address: 172.172.0.2
 
     environment:
-      - PUID=1000
-      - PGID=1000
       - TZ=Asia/Jakarta # Set your timezone
 
     ports:
