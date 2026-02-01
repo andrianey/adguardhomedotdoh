@@ -12,6 +12,8 @@ services:
 
     environment:
       - TZ=Asia/Jakarta # Set your timezone
+      - AGH_USER=admin # Optional: Set initial admin username
+      - AGH_PASSWORD=password # Optional: Set initial admin password
 
     ports:
       # DNS (Standard & Encrypted)

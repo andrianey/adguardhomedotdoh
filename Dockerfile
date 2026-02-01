@@ -13,13 +13,14 @@ LABEL maintainer="andrianey"
 LABEL description="AdGuard Home with DoH/DoT support (Stubby, Unbound, Cloudflared)"
 
 # 1. Install dependencies
-# - Added: libcap (for setcap), removed explicit unnecessary packages
+# - Added: libcap (for setcap), su-exec (for privilege drop)
 RUN apk update && apk add --no-cache \
     stubby \
     unbound \
     ca-certificates \
     tzdata \
     libcap \
+    su-exec \
     && rm -rf /var/cache/apk/*
 
 # 2. Copy AdGuard Home binary from the official image
@@ -30,9 +31,12 @@ RUN adduser -D -u 1000 adguard
 
 # 4. Setup AdGuard Home directories and permissions
 RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
+    mkdir -p /var/log && \
     chown -R adguard:adguard /opt/adguardhome && \
+    chown -R adguard:adguard /var/log && \
     chmod 700 /opt/adguardhome/work && \
-    setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome
+    setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome && \
+    setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound
 
 # 5. Setup Unbound
 RUN mkdir -p /var/lib/unbound/ && \
@@ -64,8 +68,7 @@ RUN set -eux; \
 # 8. Entrypoint script (Ensure it uses /bin/sh)
 COPY entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/entrypoint.sh && \
-    sed -i 's/\r$//' /opt/entrypoint.sh && \
-    chown adguard:adguard /opt/entrypoint.sh
+    sed -i 's/\r$//' /opt/entrypoint.sh
 
 # Expose ports
 EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/tcp 5443/tcp 5443/udp
@@ -73,6 +76,7 @@ EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/t
 # Volumes
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
 
-USER adguard
+# Run as root initially to allow entrypoint to drop privileges
+USER root
 
 ENTRYPOINT ["/opt/entrypoint.sh"]
