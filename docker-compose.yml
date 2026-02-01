@@ -1,52 +1,58 @@
-version: "3.8"
-
 services:
   adguardhome:
-    image: andrianey/adguardhomedotdoh:latest-wolfi
-    container_name: adguardhome-wolfi
-    hostname: adguard-wolfi
+    # Choose your preferred image tag: 'latest' (Alpine) or 'latest-wolfi' (Wolfi)
+    image: andrianey/adguardhomedotdoh:latest
+    container_name: adguardhome
+    hostname: adguardhome
+    restart: unless-stopped
+
+    networks:
+      adguard_net:
+        ipv4_address: 172.172.0.2
+
     environment:
-      - TZ=${TZ:-Asia/Jakarta}
-    volumes:
-      - ./adguardhome/conf:/opt/adguardhome/conf
-      - ./adguardhome/work:/opt/adguardhome/work
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Jakarta # Set your timezone
+
     ports:
-      # DNS (TCP/UDP)
+      # DNS (Standard & Encrypted)
       - "53:53/tcp"
       - "53:53/udp"
-      # DNS-over-TLS
       - "853:853/tcp"
-      # DNS-over-HTTPS
-      - "443:443/tcp"
-      # DNS-over-QUIC
-      - "784:784/udp"
-      - "8853:8853/udp"
-      # AdGuard Home Admin Panel
-      - "3000:3000/tcp"
-    # For macvlan network (uncomment if needed)
-    # networks:
-    #   macvlan0:
-    #     ipv4_address: 192.168.1.110
-    restart: unless-stopped
-    # Security options for Wolfi container
-    security_opt:
-      - no-new-privileges:true
-    # Read-only root filesystem (optional, for extra security)
-    # read_only: true
-    # tmpfs:
-    #   - /tmp
-    #   - /var/log
+      - "853:853/udp"
+      - "5443:5443/tcp"
+      - "5443:5443/udp"
 
-    # Uncomment for macvlan network configuration
-    # networks:
-    #   macvlan0:
-    #     driver: macvlan
-    #     driver_opts:
-    #       parent: eth0
-    #     ipam:
-    #       config:
-    #         - subnet: 192.168.1.0/24
-    #           gateway: 192.168.1.1
-    #           ip_range: 192.168.1.100/28
-    #           aux_addresses:
-    #             host: 192.168.1.100
+      # Web Interface & DoH (HTTP/S)
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "443:443/udp" # Required for HTTP/3 (QUIC)
+      - "3000:3000/tcp"
+      - "3000:3000/udp"
+
+      # DHCP Server
+      - "67:67/udp"
+      - "68:68/udp"
+
+      # Development/Profiling
+      - "6060:6060/tcp"
+
+    volumes:
+      # Core AdGuard Home Data
+      - /opt/adguardhome/conf:/opt/adguardhome/conf
+      - /opt/adguardhome/work:/opt/adguardhome/work
+      # Mount custom SSL certificates resolve over public address https://localhost/dns-query
+      # - /opt/adguardhome/certs:/opt/certs
+
+      # Optional: Custom Config Overrides
+      # Only mount these if you have custom config files you want to inject
+      # - /opt/adguardhome/stubby/stubby.yml:/etc/stubby/stubby.yml:ro
+      # - /opt/adguardhome/unbound/unbound.conf:/etc/unbound/unbound.conf:ro
+
+networks:
+  adguard_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.172.0.0/24
