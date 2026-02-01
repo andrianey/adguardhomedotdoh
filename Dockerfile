@@ -164,7 +164,7 @@ COPY unbound/unbound.conf /etc/unbound/unbound.conf
 COPY stubby/stubby.yml /etc/stubby/stubby.yml
 
 # Copy entrypoint script
-COPY distribution/entrypoint.sh /opt/entrypoint.sh
+COPY entrypoint.sh /opt/entrypoint.sh
 RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
 
 # Set permissions
@@ -175,17 +175,15 @@ RUN chmod 700 /opt/adguardhome/work \
 
 # Expose ports
 # DNS (TCP/UDP)
-EXPOSE 53/tcp 53/udp
-# DNS-over-TLS
-EXPOSE 853/tcp
-# DNS-over-HTTPS
-EXPOSE 443/tcp
-# DNS-over-QUIC
-EXPOSE 784/udp 8853/udp
-# AdGuard Home Admin Panel
-EXPOSE 3000/tcp
-# DHCP (optional)
-EXPOSE 67/udp 68/udp
+EXPOSE 53/tcp 53/udp \
+    67/udp \
+    68/udp \
+    80/tcp \
+    443/tcp 443/udp \
+    853/tcp 853/udp \
+    3000/tcp 3000/udp \
+    5443/tcp 5443/udp \
+    6060/tcp
 
 # Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
