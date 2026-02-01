@@ -128,9 +128,16 @@ RUN set -e; \
     tini \
     tzdata \
     glibc \
-    libssl3 && break || \
+    libssl3 \
+    libcap-utils \
+    shadow \
+    su-exec && break || \
     (echo "Retry $i failed, waiting 15s..."; sleep 15); \
     done
+
+# Create non-root user
+RUN groupadd -r adguard && \
+    useradd --no-log-init -r -g adguard -u 1000 adguard
 
 # Create necessary directories and device nodes
 RUN mkdir -p /opt/adguardhome/conf \
@@ -167,11 +174,19 @@ COPY stubby/stubby.yml /etc/stubby/stubby.yml
 COPY entrypoint.sh /opt/entrypoint.sh
 RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
 
-# Set permissions
-RUN chmod 700 /opt/adguardhome/work \
+# Set permissions and capabilities
+RUN chown -R adguard:adguard /opt/adguardhome \
+    && chown -R adguard:adguard /var/lib/unbound \
+    && chown -R adguard:adguard /etc/unbound \
+    && chown -R adguard:adguard /etc/stubby \
+    && chown -R adguard:adguard /var/log \
+    && chown adguard:adguard /opt/entrypoint.sh \
+    && chmod 700 /opt/adguardhome/work \
     && chmod 755 /opt/adguardhome/AdGuardHome \
     && chmod 755 /usr/local/bin/cloudflared \
-    && chmod 755 /usr/local/bin/stubby 2>/dev/null || true
+    && chmod 755 /usr/local/bin/stubby \
+    && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
+    && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound
 
 # Expose ports
 # DNS (TCP/UDP)
@@ -187,6 +202,9 @@ EXPOSE 53/tcp 53/udp \
 
 # Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
+
+# Run as root initially to allow entrypoint to drop privileges
+USER root
 
 # Use tini as init system
 ENTRYPOINT ["/sbin/tini", "--", "/opt/entrypoint.sh"]
