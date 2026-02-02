@@ -1,235 +1,126 @@
-# AdGuardHome DoH/DoT - Wolfi Edition 🐺
+# AdGuard Home with DoH/DoT Support
 
-## 💻 Introduction
+This project provides a custom Docker image for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) pre-configured with **Unbound** (as a recursive DNS resolver), **Stubby** (for DNS-over-TLS), and **Cloudflared** (for DNS-over-HTTPS).
 
-AdGuardHome Docker image with **DoH** (DNS over HTTPS) and **DoT** (DNS over TLS) clients, built on [Wolfi](https://wolfi.dev/) - a lightweight, secure-by-default Linux distribution designed for containers.
+[GitHub](https://github.com/andrianey/adguardhomedotdoh)
 
-### Why Wolfi?
+![Cloudflare-Test](https://raw.githubusercontent.com/andrianey/adguardhomedotdoh/7141b52e7e17ed0264a5a639a610ecd97dccc54e/cloudflare-dns.jpg)
 
-- **Security-focused**: Minimal attack surface with distroless-like images
-- **No CVEs**: Built with the latest packages to minimize vulnerabilities
-- **Small footprint**: Lighter than traditional base images
-- **SBOM support**: Full Software Bill of Materials for supply chain security
+## Available Image Tags
 
-### Components
+| Tag | Base Image | Security Level | Description |
+| :--- | :--- | :--- | :--- |
+| `latest` | Alpine Linux | Standard | Standard image running as root. Lightweight and stable. |
+| `latest-wolfi` | Wolfi OS | Enhanced | Built with [Wolfi](https://github.com/wolfi-dev) for fewer vulnerabilities. |
+| `hardened` | Alpine Linux | **High** | **Non-Root execution**. Runs as `adguard` user with `libcap` capabilities. |
+| `hardened-wolfi` | Wolfi OS | **Maximum** | Wolfi base + Non-Root execution for maximum security hardening. |
 
-| Component | Purpose | Port |
-|-----------|---------|------|
-| **AdGuard Home** | DNS server with ad-blocking | 53, 3000 (admin) |
-| **Unbound** | Recursive DNS resolver with DNSSEC | 5335 |
-| **Cloudflared** | DNS-over-HTTPS tunnel | 5053 |
-| **Stubby** | DNS-over-TLS resolver | 8053 |
+---
 
-## 🏗️ Architecture
+## Quick Start (Hardened Images)
 
-```
-                    ┌─────────────────────────────────────────────────────┐
-                    │              Wolfi Container                        │
-                    │                                                     │
-   Client DNS ──────┼──► AdGuard Home (:53) ──► Unbound (:5335)          │
-   Requests         │         │                    │                      │
-                    │         │                    ├──► Cloudflared (:5053) ──► 1.1.1.1 (DoH)
-                    │         │                    │                      │
-                    │         │                    └──► Stubby (:8053) ────► 1.1.1.1 (DoT)
-                    │         │                                           │
-                    │         └──► Admin Panel (:3000)                   │
-                    └─────────────────────────────────────────────────────┘
-```
+The `hardened` and `hardened-wolfi` images use a **Hybrid Setup Mode** unless you bind the existing AdGuardHome configuration.
 
-## 🚀 Quick Start
-
-### Build and Run
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/adguardhome-doh-dot-wolfi.git
-cd adguardhome-doh-dot-wolfi
-
-# Build and run with Docker Compose
-docker compose up -d
-
-# Or build manually
-docker build -t adguardhome-wolfi .
-docker run -d --name adguardhome \
-  -p 53:53/tcp -p 53:53/udp \
-  -p 3000:3000 \
-  -v ./adguardhome/conf:/opt/adguardhome/conf \
-  -v ./adguardhome/work:/opt/adguardhome/work \
-  adguardhome-wolfi
-```
-
-### Initial Setup
-
-1. Access the AdGuard Home admin panel: `http://localhost:3000`
-2. Complete the setup wizard
-3. Configure DNS settings (see below)
-
-## 📝 Configuration
-
+1.  **First Run**: The container starts as **Root** to allow you to complete the AdGuard Home "Get Started" wizard (which requires root).
+2.  **Setup**: Access `http://localhost:3000` and finish the setup.
+3.  **Restart**: **You MUST restart the container** after setup.
+4.  **Runtime**: On the second boot, it automatically drops privileges and runs as the **non-root `adguard` user**.
+---
 ### Docker Compose
 
-Edit `docker-compose.yml` to customize:
-
 ```yaml
-version: "3.8"
-
 services:
   adguardhome:
-    build: .
-    image: adguardhome-doh-dot-wolfi:latest
+    # Choose your preferred tag: 'latest', 'latest-wolfi', 'hardened', or 'hardened-wolfi'
+    image: andrianey/adguardhomedotdoh:latest
     container_name: adguardhome
+    hostname: adguardhome
+    restart: unless-stopped
+    
+    networks:
+      adguard_net:
+        ipv4_address: 172.172.0.2
+    
     environment:
-      - TZ=Asia/Jakarta  # Your timezone
-    volumes:
-      - ./adguardhome/conf:/opt/adguardhome/conf
-      - ./adguardhome/work:/opt/adguardhome/work
+      - TZ=Asia/Jakarta # Set your timezone
+      - PUID=1000       # User ID for file ownership
+      - PGID=1000       # Group ID for file ownership
+    
     ports:
+      # DNS
       - "53:53/tcp"
       - "53:53/udp"
-      - "853:853/tcp"      # DNS-over-TLS
-      - "443:443/tcp"      # DNS-over-HTTPS
-      - "3000:3000/tcp"    # Admin Panel
-    restart: unless-stopped
-```
+      - "853:853/tcp"
+      - "853:853/udp"
+      # Web & DoH
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "443:443/udp"
+      - "3000:3000/tcp"
+      # DHCP
+      - "67:67/udp"
+      - "68:68/udp"
+    
+    volumes:
+      # Core AdGuard Home Data for persistent configuration
+      - /opt/adguardhome/conf:/opt/adguardhome/conf
+      - /opt/adguardhome/work:/opt/adguardhome/work
 
-### AdGuard Home DNS Settings
-
-In the AdGuard Home admin panel, go to **Settings → DNS settings**:
-
-**Upstream DNS servers:**
-```
-# Unbound (local recursive resolver with DNSSEC)
-127.0.0.1:5335
-
-# Cloudflared (DNS-over-HTTPS to Cloudflare)
-127.0.0.1:5053
-
-# Stubby (DNS-over-TLS to Cloudflare)
-127.0.0.1:8053
-```
-
-**Bootstrap DNS servers:**
-```
-1.1.1.1
-1.0.0.1
-```
-
-**Recommended settings:**
-- ✅ Enable "Parallel requests" - uses all upstream servers simultaneously
-- Set DNS cache size to **0** (Unbound handles caching)
-- Set Query logs retention to **24 hours**
-
-### Macvlan Network (Optional)
-
-For advanced networking with a dedicated IP:
-
-```yaml
-services:
-  adguardhome:
-    networks:
-      macvlan0:
-        ipv4_address: 192.168.1.110
+      # Mount custom SSL certificates resolve over public address https://localhost/dns-query
+      # - /opt/adguardhome/certs:/opt/certs
+      
+      # Optional: Custom Config Overrides
+      # Only mount these if you have custom config files you want to inject
+      # - /opt/adguardhome/stubby/stubby.yml:/etc/stubby/stubby.yml:ro
+      # - /opt/adguardhome/unbound/unbound.conf:/etc/unbound/unbound.conf:ro
 
 networks:
-  macvlan0:
-    driver: macvlan
-    driver_opts:
-      parent: eth0
+  adguard_net:
+    driver: bridge
     ipam:
       config:
-        - subnet: 192.168.1.0/24
-          gateway: 192.168.1.1
-          ip_range: 192.168.1.100/28
+        - subnet: 172.172.0.0/24
 ```
 
-## 🔧 Port Reference
+---
 
-| Port | Protocol | Service |
-|------|----------|---------|
-| 53 | TCP/UDP | DNS |
-| 853 | TCP | DNS-over-TLS |
-| 443 | TCP | DNS-over-HTTPS |
-| 784 | UDP | DNS-over-QUIC |
-| 8853 | UDP | DNS-over-QUIC |
-| 3000 | TCP | AdGuard Home Admin |
-| 5053 | TCP | Cloudflared (internal) |
-| 5335 | TCP | Unbound (internal) |
-| 8053 | TCP | Stubby (internal) |
+## Internal Components
+The image comes pre-configured with the following services running internally:
 
-## 🔒 Security Features
+| Component | Internal Port | Description |
+| :--- | :--- | :--- |
+| **Unbound** | `127.0.0.1:53` | Recursive resolver with DNSSEC validation. |
+| **Stubby** | `127.0.0.1:8053` | DNS-over-TLS resolver. |
+| **Cloudflared** | `127.0.0.1:5053` | DNS-over-HTTPS tunnel. |
 
-### Wolfi Base Image
-- Minimal base image from Chainguard
-- Regular security updates
-- SBOM (Software Bill of Materials) available
-- No shell by default (added for compatibility)
+## Configuration
 
-### Multi-stage Build
-- Build dependencies not included in final image
-- Smaller attack surface
-- Reduced image size
+### AdGuard Home Upstream DNS
+When configuring AdGuard Home via the web UI (**Settings -> DNS settings**), use these Local Upstreams to leverage the embedded services:
 
-### Container Hardening
-```yaml
-security_opt:
-  - no-new-privileges:true
-```
+1.  **Upstream DNS servers** & **Bootstrap DNS servers**:
+    ```
+    # Unbound (Recursive + DNSSEC)
+    127.0.0.1:53
+    
+    # Cloudflared (DoH)
+    127.0.0.1:5053
+    
+    # Stubby (DoT)
+    127.0.0.1:8053
+    ```
 
-## 📊 Comparison: Alpine vs Wolfi
+2.  **Settings**:
+    *   Check **"Parallel requests"** (Query all upstreams simultaneously).
+    *   **Cache size**: `0` (Let Unbound/Stubby handle caching, or set low if preferred).
 
-| Feature | Alpine | Wolfi |
-|---------|--------|-------|
-| Base Size | ~5MB | ~12MB |
-| Package Manager | apk | apk |
-| SBOM Support | Limited | Full |
-| CVE Policy | Reactive | Proactive |
-| Init System | OpenRC | Distroless-like |
+---
 
-## 🛠️ Troubleshooting
+## Hardening features
+The `hardened` tags implement best practices for container security:
+*   **Non-Root User**: Runs as a dedicated `adguard` user (UID 1000).
+*   **Capabilities**: Uses `libcap` to bind to privileged ports (53, 80) without full root access.
+*   **Minimal Base**: Wolfi edition offers a software supply chain secure base image.
+*   **Permission Fixer**: The entrypoint automatically corrects permissions on mounted volumes.
 
-### Check Services Status
-```bash
-docker exec adguardhome ps aux
-docker logs adguardhome
-```
-
-### Test DNS Resolution
-```bash
-# Test Unbound
-docker exec adguardhome dig @127.0.0.1 -p 5335 google.com
-
-# Test Cloudflared
-docker exec adguardhome dig @127.0.0.1 -p 5053 google.com
-
-# Test Stubby
-docker exec adguardhome dig @127.0.0.1 -p 8053 google.com
-```
-
-### Common Issues
-
-1. **Port 53 already in use**: Stop systemd-resolved or other DNS services
-   ```bash
-   sudo systemctl stop systemd-resolved
-   ```
-
-2. **Permission denied on /opt/adguardhome/work**: The entrypoint automatically fixes this
-
-3. **Stubby fails to start**: Check LD_LIBRARY_PATH is set correctly
-
-## 📫 Credits
-
-- [Wolfi](https://wolfi.dev/) - Secure container base image
-- [Chainguard](https://chainguard.dev/) - Wolfi maintainers
-- [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome)
-- [Unbound](https://nlnetlabs.nl/projects/unbound/)
-- [Cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
-- [Stubby](https://github.com/getdnsapi/stubby)
-- Original Alpine version by [oijkn](https://github.com/oijkn/adguardhome-doh-dot)
-
-## 📜 License
-
-This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
-
-## ✍️ Feedback
-
-If you have any problems or questions, please open a [GitHub issue](https://github.com/yourusername/adguardhome-doh-dot-wolfi/issues).
+**Note**: Since the process runs as UID 1000, ensure your host volumes are writable by this user or let Docker automatically handle the ownership (which the entrypoint facilitates).
