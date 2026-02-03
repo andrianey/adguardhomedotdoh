@@ -24,14 +24,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull, Retag, and Push
+      - name: Promote Multi-Arch Image to Live
         run: |
-          # 1. Pull the auto image you tested
-          docker pull andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto
-          
-          # 2. Add the official "Live" tag
-          docker tag andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto \
-                     andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
-          
-          # 3. Push the live tag to Docker Hub
-          docker push andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
+          # Use buildx imagetools to point the "Live" tag to the "Auto" manifest list
+          docker buildx imagetools create \
+            -t andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }} \
+            andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto
