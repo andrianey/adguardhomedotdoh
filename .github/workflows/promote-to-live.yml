@@ -1,0 +1,37 @@
+name: Promote Image to Live
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to promote (latest, latest-wolfi, hardened, hardened-wolfi)'
+        required: true
+        type: choice
+        options:
+          - latest
+          - latest-wolfi
+          - hardened
+          - hardened-wolfi
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: docker-build
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull, Retag, and Push
+        run: |
+          # 1. Pull the auto image you tested
+          docker pull andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto
+          
+          # 2. Add the official "Live" tag
+          docker tag andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto \
+                     andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
+          
+          # 3. Push the live tag to Docker Hub
+          docker push andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
