@@ -25,20 +25,14 @@ chown adguard:adguard /var/run/redis
 su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
 sleep 1
 
-# 2. Start Unbound
-echo "[3/7] Starting Unbound DNS resolver..."
-su-exec adguard /usr/sbin/unbound -d -v &
-UNBOUND_PID=$!
-sleep 1
-
-# Initialize unbound anchor
+# 2. Initialize Unbound Anchor (Required for DNSSEC)
 if [ ! -f /var/lib/unbound/root.key ]; then
-    echo "       Initializing DNSSEC root key..."
+    echo "[2.5/7] Initializing DNSSEC root key..."
     su-exec adguard /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
 fi
 
-# 3. Start Cloudflared
-echo "[4/7] Starting Cloudflared DoH proxy..."
+# 3. Start Cloudflared (DNS-over-HTTPS proxy)
+echo "[3/7] Starting Cloudflared DoH proxy..."
 su-exec adguard /usr/local/bin/cloudflared proxy-dns \
     --port 5053 \
     --upstream https://1.1.1.1/dns-query \
@@ -48,17 +42,23 @@ su-exec adguard /usr/local/bin/cloudflared proxy-dns \
 CLOUDFLARED_PID=$!
 sleep 1
 
-# 4. Start Stubby
-echo "[5/7] Starting Stubby DoT proxy..."
+# 4. Start Stubby (DNS-over-TLS proxy)
+echo "[4/7] Starting Stubby DoT proxy..."
 su-exec adguard /usr/bin/stubby -C /etc/stubby/stubby.yml -l &
 STUBBY_PID=$!
 sleep 1
 
-# 5. Show status
+# 5. Start Unbound DNS Resolver
+echo "[5/7] Starting Unbound DNS resolver..."
+su-exec adguard /usr/sbin/unbound -d -v &
+UNBOUND_PID=$!
+sleep 1
+
+# 5.5. Show status
 echo "[6/7] Services started:"
-echo "       - Unbound:    PID $UNBOUND_PID"
-echo "       - Cloudflared: PID $CLOUDFLARED_PID"
-echo "       - Stubby:     PID $STUBBY_PID"
+echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
+echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
+echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
 
 # 6. Start AdGuard Home
 # Logic: If config exists, run as non-root. If not (setup), run as root.
