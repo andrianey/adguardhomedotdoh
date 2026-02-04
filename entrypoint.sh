@@ -24,19 +24,9 @@ chown adguard:adguard /var/run/redis
 su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
 sleep 1
 
-# 2. Start Unbound (DNS resolver with DNSSEC validation)
-echo "[3/7] Starting Unbound DNS resolver..."
-# Run unbound in background as adguard
-su-exec adguard /usr/sbin/unbound -d -v &
-UNBOUND_PID=$!
-sleep 1
 
-# Initialize unbound anchor for DNSSEC (if root.key doesn't exist)
-if [ ! -f /var/lib/unbound/root.key ]; then
-    echo "       Initializing DNSSEC root key..."
-    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
-    chown adguard:adguard /var/lib/unbound/root.key || true
-fi
+
+
 
 # 3. Start Cloudflared (DNS-over-HTTPS proxy)
 echo "[4/7] Starting Cloudflared DoH proxy..."
@@ -57,9 +47,24 @@ sleep 1
 
 # 5. Show service status
 echo "[6/7] Services started:"
-echo "       - Unbound:    PID $UNBOUND_PID (port 53)"
 echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
 echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
+
+# 5.5 Start Unbound (DNS resolver with DNSSEC validation)
+# Initialize unbound anchor for DNSSEC (if root.key doesn't exist)
+if [ ! -f /var/lib/unbound/root.key ]; then
+    echo "[6.5/7] Initializing DNSSEC root key..."
+    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
+    chown adguard:adguard /var/lib/unbound/root.key || true
+fi
+
+echo "[6.8/7] Starting Unbound DNS resolver..."
+# Run unbound in background as adguard
+su-exec adguard /usr/sbin/unbound -d -v &
+UNBOUND_PID=$!
+sleep 1
+echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
+
 
 # 6. Start AdGuard Home
 # Logic: If config exists, run as non-root. If not (setup), run as root.
