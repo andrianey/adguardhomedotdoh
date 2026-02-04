@@ -9,6 +9,11 @@ echo "============================================"
 echo "[1/6] Setting up directories and permissions..."
 mkdir -p /opt/adguardhome/work
 mkdir -p /opt/adguardhome/conf
+mkdir -p /var/log
+chown -R adguard:adguard /opt/adguardhome
+chown -R adguard:adguard /var/lib/unbound
+chown -R adguard:adguard /etc/stubby
+chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
 # 1.5. Start Redis (RAM Cache) using Valkey
@@ -21,8 +26,8 @@ sleep 1
 
 # 2. Start Unbound (DNS resolver with DNSSEC validation)
 echo "[3/7] Starting Unbound DNS resolver..."
-# Run unbound in background
-/usr/sbin/unbound -d -v &
+# Run unbound in background as adguard
+su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
 sleep 1
 
@@ -35,7 +40,7 @@ fi
 
 # 3. Start Cloudflared (DNS-over-HTTPS proxy)
 echo "[4/7] Starting Cloudflared DoH proxy..."
-/usr/local/bin/cloudflared proxy-dns \
+su-exec adguard /usr/local/bin/cloudflared proxy-dns \
     --port 5053 \
     --upstream https://1.1.1.1/dns-query \
     --upstream https://1.0.0.1/dns-query \
@@ -46,7 +51,7 @@ sleep 1
 
 # 4. Start Stubby (DNS-over-TLS proxy)
 echo "[5/7] Starting Stubby DoT proxy..."
-/usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
+su-exec adguard /usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
 STUBBY_PID=$!
 sleep 1
 
@@ -56,13 +61,30 @@ echo "       - Unbound:    PID $UNBOUND_PID (port 53)"
 echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
 echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
 
-# 6. Start AdGuard Home (foreground)
-echo "[7/7] Starting AdGuard Home..."
-echo "============================================"
-echo ""
+# 6. Start AdGuard Home
+# Logic: If config exists, run as non-root. If not (setup), run as root.
+CONFIG_FILE="/opt/adguardhome/conf/AdGuardHome.yaml"
 
-exec /opt/adguardhome/AdGuardHome \
-    --no-check-update \
-    -c /opt/adguardhome/conf/AdGuardHome.yaml \
-    -w /opt/adguardhome/work \
-    "$@"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[7/7] Setup mode detected (no config). Starting AdGuard Home as ROOT..."
+    echo "      IMPORTANT: Complete the setup wizard, then RESTART this container to switch to hardened non-root mode."
+    
+    exec /opt/adguardhome/AdGuardHome \
+        --no-check-update \
+        -c "$CONFIG_FILE" \
+        -w /opt/adguardhome/work \
+        "$@"
+else
+    echo "[7/7] Configuration found. Starting AdGuard Home as adguard (non-root)..."
+    
+    # Fix ownership of files created by Root during setup
+    echo "      Enforcing file permissions..."
+    chown -R adguard:adguard /opt/adguardhome/conf
+    chown -R adguard:adguard /opt/adguardhome/work
+    
+    exec su-exec adguard /opt/adguardhome/AdGuardHome \
+        --no-check-update \
+        -c "$CONFIG_FILE" \
+        -w /opt/adguardhome/work \
+        "$@"
+fi
