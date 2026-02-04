@@ -16,6 +16,13 @@ chown -R adguard:adguard /etc/stubby
 chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
+# 1.2. Initialize unbound anchor for DNSSEC (Required by Stubby)
+if [ ! -f /var/lib/unbound/root.key ]; then
+    echo "       Initializing DNSSEC root key..."
+    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
+    chown adguard:adguard /var/lib/unbound/root.key || true
+fi
+
 # 1.5. Start Redis (RAM Cache) using Valkey
 echo "[2/7] Starting Valkey (Redis compatible)..."
 mkdir -p /var/run/redis
@@ -23,6 +30,7 @@ chown adguard:adguard /var/run/redis
 # Run valkey as adguard user, listening on unix socket only
 su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
 sleep 1
+
 
 
 
@@ -64,6 +72,17 @@ su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
 sleep 1
 echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
+
+echo "[6/7] DNS Proxies started:"
+echo "       - Cloudflared (DoH): PID $CLOUDFLARED_PID (port 5053)"
+echo "       - Stubby (DoT):      PID $STUBBY_PID (port 8053)"
+
+echo "[6.5/7] Starting Unbound DNS resolver..."
+# Run unbound in background as adguard
+su-exec adguard /usr/sbin/unbound -d -v &
+UNBOUND_PID=$!
+sleep 1
+echo "       - Unbound (Recursive): PID $UNBOUND_PID (port 5335)"
 
 
 # 6. Start AdGuard Home
