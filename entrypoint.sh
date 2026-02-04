@@ -11,12 +11,12 @@ mkdir -p /opt/adguardhome/work
 mkdir -p /opt/adguardhome/conf
 chmod 700 /opt/adguardhome/work
 
-# 1.5. Start Redis (RAM Cache)
-echo "[2/7] Starting Redis..."
+# 1.5. Start Redis (RAM Cache) using Valkey
+echo "[2/7] Starting Valkey (Redis compatible)..."
 mkdir -p /var/run/redis
 chown adguard:adguard /var/run/redis
-# Run redis as adguard user, listening on unix socket only
-su-exec adguard redis-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
+# Run valkey as adguard user, listening on unix socket only
+su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
 sleep 1
 
 # 2. Start Unbound (DNS resolver with DNSSEC validation)
@@ -29,7 +29,8 @@ sleep 1
 # Initialize unbound anchor for DNSSEC (if root.key doesn't exist)
 if [ ! -f /var/lib/unbound/root.key ]; then
     echo "       Initializing DNSSEC root key..."
-    /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
+    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
+    chown adguard:adguard /var/lib/unbound/root.key || true
 fi
 
 # 3. Start Cloudflared (DNS-over-HTTPS proxy)

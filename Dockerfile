@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Clone and build getdns with stubby
 RUN git clone https://github.com/getdnsapi/getdns.git /tmp/getdns \
     && cd /tmp/getdns \
-    && git checkout master \
+    && git checkout develop \
     && git submodule update --init \
     && mkdir build && cd build \
     && cmake -DBUILD_STUBBY=ON \
@@ -121,10 +121,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/unbound
-# Unbound version 1.19.1
-RUN wget https://nlnetlabs.nl/downloads/unbound/unbound-1.19.1.tar.gz \
-    && tar -xzf unbound-1.19.1.tar.gz \
-    && cd unbound-1.19.1 \
+# Unbound version Latest
+RUN wget https://nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
+    && tar -xzf unbound-latest.tar.gz \
+    && cd unbound-latest \
     && ./configure \
     --prefix=/usr \
     --sysconfdir=/etc \
@@ -151,27 +151,21 @@ LABEL name="adguardhome-doh-dot-wolfi"
 LABEL description="AdGuard Home with DoT/DoH support using Stubby, Unbound, and Cloudflared on Wolfi"
 
 # Install runtime dependencies from Wolfi repos with retry
-RUN set -e; \
-    for i in 1 2 3 4 5; do \
-    echo "Attempt $i: Installing runtime dependencies..."; \
-    apk add --no-cache --repository https://packages.wolfi.dev/os \
-    --allow-untrusted \
+RUN apk update && apk add --no-cache \
     bash \
     ca-certificates \
     openssl \
     libevent \
     yaml \
     libidn2 \
-    redis \
+    valkey \
     tini \
     tzdata \
-    glibc \
     libssl3 \
     libcap-utils \
+    libexpat1 \
     shadow \
-    su-exec && break || \
-    (echo "Retry $i failed, waiting 15s..."; sleep 15); \
-    done
+    su-exec
 
 # Create non-root user
 RUN groupadd -r adguard && \
@@ -216,6 +210,10 @@ ENV LD_LIBRARY_PATH="/usr/local/lib"
 # Copy configuration files
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 COPY stubby/stubby.yml /etc/stubby/stubby.yml
+
+# Check configuration files for windows line endings
+RUN sed -i 's/\r$//' /etc/unbound/unbound.conf \
+    && sed -i 's/\r$//' /etc/stubby/stubby.yml
 
 # Copy entrypoint script
 COPY entrypoint.sh /opt/entrypoint.sh
