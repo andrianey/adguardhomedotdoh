@@ -53,36 +53,19 @@ su-exec adguard /usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
 STUBBY_PID=$!
 sleep 1
 
-# 5. Show service status
-echo "[6/7] Services started:"
-echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
-echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
-
-# 5.5 Start Unbound (DNS resolver with DNSSEC validation)
-# Initialize unbound anchor for DNSSEC (if root.key doesn't exist)
-if [ ! -f /var/lib/unbound/root.key ]; then
-    echo "[6.5/7] Initializing DNSSEC root key..."
-    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
-    chown adguard:adguard /var/lib/unbound/root.key || true
-fi
-
-echo "[6.8/7] Starting Unbound DNS resolver..."
+# 5. Start Unbound (DNS resolver with DNSSEC validation)
+echo "[3/7] Starting Unbound DNS resolver..."
 # Run unbound in background as adguard
 su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
 sleep 1
-echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
 
-echo "[6/7] DNS Proxies started:"
-echo "       - Cloudflared (DoH): PID $CLOUDFLARED_PID (port 5053)"
-echo "       - Stubby (DoT):      PID $STUBBY_PID (port 8053)"
-
-echo "[6.5/7] Starting Unbound DNS resolver..."
-# Run unbound in background as adguard
-su-exec adguard /usr/sbin/unbound -d -v &
-UNBOUND_PID=$!
-sleep 1
-echo "       - Unbound (Recursive): PID $UNBOUND_PID (port 5335)"
+# 6. Show service status
+echo "[6/7] All services started:"
+echo "       - Valkey (Cache):     Running (Unix Socket)"
+echo "       - Unbound (Resolver): PID $UNBOUND_PID (port 5335)"
+echo "       - Cloudflared (DoH):  PID $CLOUDFLARED_PID (port 5053)"
+echo "       - Stubby (DoT):       PID $STUBBY_PID (port 8053)"
 
 
 # 6. Start AdGuard Home
