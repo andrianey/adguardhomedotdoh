@@ -158,12 +158,14 @@ RUN set -e; \
     valkey \
     hiredis \
     expat \
+    yaml \
+    libidn2 \
     tini \
     tzdata \
     glibc \
     libssl3 \
     libcap-utils && break || \
-    (echo "Retry $i failed, waiting 15s..."; sleep 15); \
+    (echo "Retry $i failed, waiting 15s.."; sleep 15); \
     done
 
 # Create necessary directories and device nodes
