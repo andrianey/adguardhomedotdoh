@@ -11,8 +11,16 @@ mkdir -p /opt/adguardhome/work
 mkdir -p /opt/adguardhome/conf
 chmod 700 /opt/adguardhome/work
 
+# 1.5. Start Redis (RAM Cache)
+echo "[2/7] Starting Redis..."
+mkdir -p /var/run/redis
+chown adguard:adguard /var/run/redis
+# Run redis as adguard user, listening on unix socket only
+su-exec adguard redis-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
+sleep 1
+
 # 2. Start Unbound (DNS resolver with DNSSEC validation)
-echo "[2/6] Starting Unbound DNS resolver..."
+echo "[3/7] Starting Unbound DNS resolver..."
 # Run unbound in background
 /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
@@ -25,7 +33,7 @@ if [ ! -f /var/lib/unbound/root.key ]; then
 fi
 
 # 3. Start Cloudflared (DNS-over-HTTPS proxy)
-echo "[3/6] Starting Cloudflared DoH proxy..."
+echo "[4/7] Starting Cloudflared DoH proxy..."
 /usr/local/bin/cloudflared proxy-dns \
     --port 5053 \
     --upstream https://1.1.1.1/dns-query \
@@ -36,19 +44,19 @@ CLOUDFLARED_PID=$!
 sleep 1
 
 # 4. Start Stubby (DNS-over-TLS proxy)
-echo "[4/6] Starting Stubby DoT proxy..."
+echo "[5/7] Starting Stubby DoT proxy..."
 /usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
 STUBBY_PID=$!
 sleep 1
 
 # 5. Show service status
-echo "[5/6] Services started:"
+echo "[6/7] Services started:"
 echo "       - Unbound:    PID $UNBOUND_PID (port 53)"
 echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
 echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
 
 # 6. Start AdGuard Home (foreground)
-echo "[6/6] Starting AdGuard Home..."
+echo "[7/7] Starting AdGuard Home..."
 echo "============================================"
 echo ""
 

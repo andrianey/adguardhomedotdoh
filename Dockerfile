@@ -104,7 +104,45 @@ RUN set -eux; \
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 
 # -----------------------------------------------------------------------------
-# Stage 4: Final image using Wolfi
+# Stage 4: Builder stage for Unbound (compiled with Redis cachedb support)
+# -----------------------------------------------------------------------------
+FROM debian:bookworm-slim AS builder_unbound
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
+    libevent-dev \
+    libexpat1-dev \
+    libhiredis-dev \
+    bison \
+    flex \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp/unbound
+# Unbound version 1.19.1
+RUN wget https://nlnetlabs.nl/downloads/unbound/unbound-1.19.1.tar.gz \
+    && tar -xzf unbound-1.19.1.tar.gz \
+    && cd unbound-1.19.1 \
+    && ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --with-libevent \
+    --with-libhiredis \
+    --enable-cachedb \
+    --with-pidfile=/run/unbound.pid \
+    && make -j$(nproc) \
+    && make install DESTDIR=/tmp/unbound/install
+
+# Prepare libraries for copy (handle multi-arch path)
+RUN mkdir -p /output/lib \
+    && cp /usr/lib/*/libhiredis.so* /output/lib/ \
+    && cp /usr/lib/*/libevent* /output/lib/
+
+# -----------------------------------------------------------------------------
+# Stage 5: Final image using Wolfi
 # -----------------------------------------------------------------------------
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
@@ -124,7 +162,7 @@ RUN set -e; \
     libevent \
     yaml \
     libidn2 \
-    unbound \
+    redis \
     tini \
     tzdata \
     glibc \
@@ -162,6 +200,15 @@ COPY --from=builder_cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudf
 
 # Copy root.hints for Unbound
 COPY --from=builder_cloudflared /tmp/root.hints /var/lib/unbound/root.hints
+
+# Copy Unbound from builder_unbound
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
+COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/local/lib/
+COPY --from=builder_unbound /output/lib/libhiredis.so* /usr/local/lib/
+COPY --from=builder_unbound /output/lib/libevent* /usr/local/lib/
 
 # Set library path for stubby
 ENV LD_LIBRARY_PATH="/usr/local/lib"
