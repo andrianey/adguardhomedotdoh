@@ -122,9 +122,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /tmp/unbound
 # Unbound version Latest
-RUN wget https://nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
+RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && tar -xzf unbound-latest.tar.gz \
-    && cd unbound-latest \
+    && rm unbound-latest.tar.gz \
+    && cd unbound-* \
     && ./configure \
     --prefix=/usr \
     --sysconfdir=/etc \
