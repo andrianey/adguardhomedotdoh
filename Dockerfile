@@ -104,6 +104,39 @@ RUN set -eux; \
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 
 # -----------------------------------------------------------------------------
+# Stage 4: Builder stage for Unbound (Compiled with Redis/Valkey support) - Using Wolfi
+# -----------------------------------------------------------------------------
+FROM cgr.dev/chainguard/wolfi-base:latest AS builder_unbound
+
+RUN apk add --no-cache --repository https://packages.wolfi.dev/os \
+    --allow-untrusted \
+    build-base \
+    openssl-dev \
+    libevent-dev \
+    expat-dev \
+    hiredis-dev \
+    bison \
+    flex \
+    wget \
+    ca-certificates
+
+WORKDIR /tmp/unbound
+RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
+    && tar -xzf unbound-latest.tar.gz \
+    && rm unbound-latest.tar.gz \
+    && cd unbound-* \
+    && ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --with-libevent \
+    --with-libhiredis \
+    --enable-cachedb \
+    --with-pidfile=/var/run/unbound.pid \
+    && make -j$(nproc) \
+    && make install DESTDIR=/tmp/unbound/install
+
+# -----------------------------------------------------------------------------
 # Stage 4: Final image using Wolfi
 # -----------------------------------------------------------------------------
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
@@ -122,22 +155,16 @@ RUN set -e; \
     ca-certificates \
     openssl \
     libevent \
-    yaml \
-    libidn2 \
-    unbound \
+    valkey \
+    hiredis \
+    expat \
     tini \
     tzdata \
     glibc \
     libssl3 \
-    libcap-utils \
-    shadow \
-    su-exec && break || \
+    libcap-utils && break || \
     (echo "Retry $i failed, waiting 15s..."; sleep 15); \
     done
-
-# Create non-root user
-RUN groupadd -r adguard && \
-    useradd --no-log-init -r -g adguard -u 1000 adguard
 
 # Create necessary directories and device nodes
 RUN mkdir -p /opt/adguardhome/conf \
@@ -160,6 +187,14 @@ COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardH
 # Copy Cloudflared from Alpine builder
 COPY --from=builder_cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
+# Copy Unbound from builder
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
+COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
+COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound* /usr/lib/
+
+
 # Copy root.hints for Unbound
 COPY --from=builder_cloudflared /tmp/root.hints /var/lib/unbound/root.hints
 
@@ -175,13 +210,7 @@ COPY entrypoint.sh /opt/entrypoint.sh
 RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
 
 # Set permissions and capabilities
-RUN chown -R adguard:adguard /opt/adguardhome \
-    && chown -R adguard:adguard /var/lib/unbound \
-    && chown -R adguard:adguard /etc/unbound \
-    && chown -R adguard:adguard /etc/stubby \
-    && chown -R adguard:adguard /var/log \
-    && chown adguard:adguard /opt/entrypoint.sh \
-    && chmod 700 /opt/adguardhome/work \
+RUN chmod 700 /opt/adguardhome/work \
     && chmod 755 /opt/adguardhome/AdGuardHome \
     && chmod 755 /usr/local/bin/cloudflared \
     && chmod 755 /usr/local/bin/stubby \
