@@ -24,14 +24,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull, Retag, and Push
+      - name: Promote Multi-Arch Image to Live
         run: |
-          # 1. Pull the auto image you tested
-          docker pull andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto
-          
-          # 2. Add the official "Live" tag
-          docker tag andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto \
-                     andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
-          
-          # 3. Push the live tag to Docker Hub
-          docker push andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}
+          # Use buildx imagetools to point the "Live" tag to the "Auto" manifest list
+          docker buildx imagetools create \
+            -t andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }} \
+            andrianey/adguardhomedotdoh:${{ github.event.inputs.target_branch }}-auto
+      - name: Delete Auto Tag from Docker Hub
+        run: |
+          # 1. Login to Docker Hub API to get a JWT token
+          TOKEN=$(curl -s -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          # 2. Delete the -auto tag
+          # Replace 'andrianey/adguardhomedotdoh' with your repo if it changes
+          curl -i -X DELETE \
+            -H "Authorization: JWT ${TOKEN}" \
+            https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/tags/${{ github.event.inputs.target_branch }}-auto
