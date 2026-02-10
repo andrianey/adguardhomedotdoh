@@ -4,7 +4,3 @@
 # 
 # Original cron entries (for reference):
 # 1 0 1 */6 * wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root
-# 
-# Cloudflared update (Fridays at 03:00)
-# Note: Container should be rebuilt to update cloudflared
-# 0 3 * * FRI cloudflared update
