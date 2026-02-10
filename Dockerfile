@@ -6,39 +6,7 @@
 # ============================================================================
 
 # -----------------------------------------------------------------------------
-# Stage 1: Builder stage for Stubby (using Debian for glibc compatibility)
-# -----------------------------------------------------------------------------
-FROM debian:bookworm-slim AS builder_stubby
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    git \
-    libssl-dev \
-    libevent-dev \
-    libyaml-dev \
-    check \
-    libidn2-dev \
-    gettext \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone and build getdns with stubby
-RUN git clone https://github.com/getdnsapi/getdns.git /tmp/getdns \
-    && cd /tmp/getdns \
-    && git checkout develop \
-    && git submodule update --init \
-    && mkdir build && cd build \
-    && cmake -DBUILD_STUBBY=ON \
-    -DCMAKE_INSTALL_PREFIX=/usr/local \
-    -DENABLE_STUB_ONLY=ON \
-    .. \
-    && make -j$(nproc) \
-    && make install
-
-# -----------------------------------------------------------------------------
-# Stage 2: Builder stage for AdGuard Home (using Alpine for speed)
+# Stage 1: Builder stage for AdGuard Home (using Alpine for speed)
 # -----------------------------------------------------------------------------
 FROM alpine:latest AS builder_adguard
 
@@ -73,38 +41,53 @@ RUN set -eux; \
     echo "AdGuard Home installed successfully"
 
 # -----------------------------------------------------------------------------
-# Stage 3: Cloudflared and resources downloader (using Alpine)
+# Stage 2: Helper stage to download dnsproxy and root.hints
 # -----------------------------------------------------------------------------
-FROM alpine:latest AS builder_cloudflared
+FROM alpine:latest AS builder_helpers
 
-RUN apk update && apk add --no-cache wget ca-certificates
+RUN apk update && apk add --no-cache curl jq ca-certificates
 
-# Download Cloudflared based on architecture
+# Download dnsproxy
 RUN set -eux; \
     ARCH="$(uname -m)"; \
     case "$ARCH" in \
     aarch64|arm64) \
-    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"; \
+    DNSPROXY_ARCH="linux-arm64"; \
     ;; \
     armv7l|armhf) \
-    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm"; \
+    DNSPROXY_ARCH="linux-armv7"; \
     ;; \
     x86_64|amd64) \
-    CL_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"; \
+    DNSPROXY_ARCH="linux-amd64"; \
     ;; \
     *) \
     echo "Unsupported architecture: $ARCH"; \
     exit 1; \
     ;; \
     esac; \
-    wget -O /usr/local/bin/cloudflared "${CL_URL}"; \
-    chmod +x /usr/local/bin/cloudflared
+    # Fetch latest release URL dynamically
+    # Use pattern matching to find the tar.gz asset for the architecture
+    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
+    jq -r ".assets[] | select(.name | contains(\"${DNSPROXY_ARCH}\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
+    if [ -z "$DNSPROXY_URL" ] || [ "$DNSPROXY_URL" = "null" ]; then \
+    # Fallback for armv7 variants if specific armv7 not found, try arm7 or arm6
+    if [ "$DNSPROXY_ARCH" = "linux-armv7" ]; then \
+    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
+    jq -r ".assets[] | select(.name | contains(\"linux-arm7\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
+    fi; \
+    fi; \
+    echo "Downloading dnsproxy from: ${DNSPROXY_URL}"; \
+    curl -L -o /tmp/dnsproxy.tar.gz "${DNSPROXY_URL}"; \
+    tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
+    # Find binary regardless of directory structure
+    find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
+    chmod +x /usr/local/bin/dnsproxy
 
 # Download root.hints for Unbound
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 
 # -----------------------------------------------------------------------------
-# Stage 4: Builder stage for Unbound (compiled with Redis cachedb support)
+# Stage 3: Builder stage for Unbound (compiled with Redis cachedb support)
 # -----------------------------------------------------------------------------
 FROM debian:bookworm-slim AS builder_unbound
 
@@ -143,13 +126,13 @@ RUN mkdir -p /output/lib \
     && cp /usr/lib/*/libevent* /output/lib/
 
 # -----------------------------------------------------------------------------
-# Stage 5: Final image using Wolfi
+# Stage 4: Final image using Wolfi
 # -----------------------------------------------------------------------------
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
 LABEL maintainer="andrianey"
 LABEL name="adguardhome-doh-dot-wolfi"
-LABEL description="AdGuard Home with DoT/DoH support using Stubby, Unbound, and Cloudflared on Wolfi"
+LABEL description="AdGuard Home with DoT/DoH support using dnsproxy and Unbound on Wolfi"
 
 # Install runtime dependencies from Wolfi repos with retry
 RUN apk update && apk add --no-cache \
@@ -157,8 +140,6 @@ RUN apk update && apk add --no-cache \
     ca-certificates \
     openssl \
     libevent \
-    yaml \
-    libidn2 \
     valkey \
     tini \
     tzdata \
@@ -176,25 +157,20 @@ RUN groupadd -r adguard && \
 RUN mkdir -p /opt/adguardhome/conf \
     && mkdir -p /opt/adguardhome/work \
     && mkdir -p /var/lib/unbound \
-    && mkdir -p /etc/stubby \
     && mkdir -p /usr/local/var/run \
     && mkdir -p /var/log \
     && mkdir -p /usr/local/lib \
     && mkdir -p /dev \
     && mknod -m 666 /dev/null c 1 3 2>/dev/null || true
 
-# Copy Stubby libraries and binary from Debian builder
-COPY --from=builder_stubby /usr/local/lib/libgetdns* /usr/local/lib/
-COPY --from=builder_stubby /usr/local/bin/stubby /usr/local/bin/stubby
-
 # Copy AdGuard Home from Alpine builder
 COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardHome
 
-# Copy Cloudflared from Alpine builder
-COPY --from=builder_cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+# Copy dnsproxy from helpers builder
+COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 
 # Copy root.hints for Unbound
-COPY --from=builder_cloudflared /tmp/root.hints /var/lib/unbound/root.hints
+COPY --from=builder_helpers /tmp/root.hints /var/lib/unbound/root.hints
 
 # Copy Unbound from builder_unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
@@ -205,16 +181,11 @@ COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/loc
 COPY --from=builder_unbound /output/lib/libhiredis.so* /usr/local/lib/
 COPY --from=builder_unbound /output/lib/libevent* /usr/local/lib/
 
-# Set library path for stubby
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-
 # Copy configuration files
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
-COPY stubby/stubby.yml /etc/stubby/stubby.yml
 
 # Check configuration files for windows line endings
-RUN sed -i 's/\r$//' /etc/unbound/unbound.conf \
-    && sed -i 's/\r$//' /etc/stubby/stubby.yml
+RUN sed -i 's/\r$//' /etc/unbound/unbound.conf
 
 # Copy entrypoint script
 COPY entrypoint.sh /opt/entrypoint.sh
@@ -224,15 +195,14 @@ RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
 RUN chown -R adguard:adguard /opt/adguardhome \
     && chown -R adguard:adguard /var/lib/unbound \
     && chown -R adguard:adguard /etc/unbound \
-    && chown -R adguard:adguard /etc/stubby \
     && chown -R adguard:adguard /var/log \
     && chown adguard:adguard /opt/entrypoint.sh \
     && chmod 700 /opt/adguardhome/work \
     && chmod 755 /opt/adguardhome/AdGuardHome \
-    && chmod 755 /usr/local/bin/cloudflared \
-    && chmod 755 /usr/local/bin/stubby \
+    && chmod 755 /usr/local/bin/dnsproxy \
     && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
-    && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound
+    && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
 
 # Expose ports
 # DNS (TCP/UDP)

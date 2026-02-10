@@ -27,7 +27,7 @@ tls_query_padding_blocksize: 128
 
 # EDNS0 option for ECS client privacy as described in Section 7.1.2 of
 # https://tools.ietf.org/html/rfc7871
-edns_client_subnet_private : 1
+edns_client_subnet_private: 1
 
 # EDNS0 option for keepalive idle timeout in ms as specified in
 # https://tools.ietf.org/html/rfc7828
@@ -40,7 +40,7 @@ idle_timeout: 9000
 # specify a different port
 listen_addresses:
   - 127.0.0.1@8053
-#  - 0::1@8053
+  - 0::1@8053
 
 # Instructs stubby to distribute queries across all available name servers.
 # Set to 0 to treat the upstreams below as an ordered list and use a single
@@ -145,10 +145,10 @@ upstream_recursive_servers:
 #  - address_data: 149.112.112.11
 #    tls_auth_name: "dns.quad9.net"
 ## Quad 9 'secure' service - Filters, does DNSSEC, doesn't send ECS
-#  - address_data: 9.9.9.9
-#    tls_auth_name: "dns.quad9.net"
-#  - address_data: 149.112.112.112
-#    tls_auth_name: "dns.quad9.net"
+  - address_data: 9.9.9.9
+    tls_auth_name: "dns.quad9.net"
+  - address_data: 149.112.112.112
+    tls_auth_name: "dns.quad9.net"
 ## Quad 9 'insecure' service - No filtering, does DNSSEC, may send ECS (it is
 ## unclear if it honours the edns_client_subnet_private request from stubby)
 #  - address_data: 9.9.9.10
@@ -253,10 +253,10 @@ upstream_recursive_servers:
 #  - address_data: 2620:fe::fe:11
 #    tls_auth_name: "dns.quad9.net"
 ## Quad 9 'secure' service - Filters, does DNSSEC, doesn't send ECS
-# - address_data: 2620:fe::fe
-#    tls_auth_name: "dns.quad9.net"
-#  - address_data: 2620:fe::9
-#   tls_auth_name: "dns.quad9.net"
+  - address_data: 2620:fe::fe
+    tls_auth_name: "dns.quad9.net"
+  - address_data: 2620:fe::9
+    tls_auth_name: "dns.quad9.net"
 ## Quad 9 'insecure' service - No filtering, does DNSSEC, may send ECS (it is
 ## unclear if it honours the edns_client_subnet_private request from stubby)
 #  - address_data: 2620:fe::10

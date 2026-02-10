@@ -12,7 +12,6 @@ mkdir -p /opt/adguardhome/conf
 mkdir -p /var/log
 chown -R adguard:adguard /opt/adguardhome
 chown -R adguard:adguard /var/lib/unbound
-chown -R adguard:adguard /etc/stubby
 chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
@@ -36,36 +35,34 @@ sleep 1
 
 
 
-# 3. Start Cloudflared (DNS-over-HTTPS proxy)
-echo "[4/7] Starting Cloudflared DoH proxy..."
-su-exec adguard /usr/local/bin/cloudflared proxy-dns \
-    --port 5053 \
-    --upstream https://1.1.1.1/dns-query \
-    --upstream https://1.0.0.1/dns-query \
-    --upstream https://2606:4700:4700::1111/dns-query \
-    --upstream https://2606:4700:4700::1001/dns-query &
-CLOUDFLARED_PID=$!
+# 3. Start dnsproxy (DoH/DoT upstream)
+echo "[3/7] Starting dnsproxy (DoH/DoT upstream)..."
+# Run dnsproxy as adguard
+# Upstreams: Cloudflare DoT and DoH
+su-exec adguard /usr/local/bin/dnsproxy \
+    -l 127.0.0.1 \
+    -p 8053 \
+    -u tls://1.1.1.1 \
+    -u tls://1.0.0.1 \
+    -u https://1.1.1.1/dns-query \
+    -u https://1.0.0.1/dns-query \
+    --cache-size=0 \
+    --verbose &
+DNSPROXY_PID=$!
 sleep 1
 
-# 4. Start Stubby (DNS-over-TLS proxy)
-echo "[5/7] Starting Stubby DoT proxy..."
-su-exec adguard /usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
-STUBBY_PID=$!
-sleep 1
-
-# 5. Start Unbound (DNS resolver with DNSSEC validation)
-echo "[3/7] Starting Unbound DNS resolver..."
+# 4. Start Unbound (DNS resolver with DNSSEC validation)
+echo "[4/7] Starting Unbound DNS resolver..."
 # Run unbound in background as adguard
 su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
 sleep 1
 
-# 6. Show service status
-echo "[6/7] All services started:"
+# 5. Show service status
+echo "[5/7] All services started:"
 echo "       - Valkey (Cache):     Running (Unix Socket)"
 echo "       - Unbound (Resolver): PID $UNBOUND_PID (port 5335)"
-echo "       - Cloudflared (DoH):  PID $CLOUDFLARED_PID (port 5053)"
-echo "       - Stubby (DoT):       PID $STUBBY_PID (port 8053)"
+echo "       - dnsproxy (Upstream): PID $DNSPROXY_PID (port 8053)"
 
 
 # 6. Start AdGuard Home
