@@ -12,7 +12,6 @@ mkdir -p /opt/adguardhome/conf
 mkdir -p /var/log
 chown -R adguard:adguard /opt/adguardhome
 chown -R adguard:adguard /var/lib/unbound
-chown -R adguard:adguard /etc/stubby
 chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
@@ -31,34 +30,30 @@ if [ ! -f /var/lib/unbound/root.key ]; then
     su-exec adguard /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
 fi
 
-# 3. Start Cloudflared (DNS-over-HTTPS proxy)
-echo "[3/7] Starting Cloudflared DoH proxy..."
-su-exec adguard /usr/local/bin/cloudflared proxy-dns \
-    --port 5053 \
-    --upstream https://1.1.1.1/dns-query \
-    --upstream https://1.0.0.1/dns-query \
-    --upstream https://2606:4700:4700::1111/dns-query \
-    --upstream https://2606:4700:4700::1001/dns-query &
-CLOUDFLARED_PID=$!
+# 3. Start dnsproxy (DoH/DoT upstream)
+echo "[3/7] Starting dnsproxy (DoH/DoT upstream)..."
+su-exec adguard /usr/local/bin/dnsproxy \
+    -l 127.0.0.1 \
+    -p 8053 \
+    -u tls://1.1.1.1 \
+    -u tls://1.0.0.1 \
+    -u https://1.1.1.1/dns-query \
+    -u https://1.0.0.1/dns-query \
+    --cache-size=0 \
+    --verbose &
+DNSPROXY_PID=$!
 sleep 1
 
-# 4. Start Stubby (DNS-over-TLS proxy)
-echo "[4/7] Starting Stubby DoT proxy..."
-su-exec adguard /usr/bin/stubby -C /etc/stubby/stubby.yml -l &
-STUBBY_PID=$!
-sleep 1
-
-# 5. Start Unbound DNS Resolver
-echo "[5/7] Starting Unbound DNS resolver..."
+# 4. Start Unbound DNS Resolver
+echo "[4/7] Starting Unbound DNS resolver..."
 su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
 sleep 1
 
-# 5.5. Show status
-echo "[6/7] Services started:"
+# 5. Show status
+echo "[5/7] Services started:"
 echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
-echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
-echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
+echo "       - dnsproxy:   PID $DNSPROXY_PID (port 8053)"
 
 # 6. Start AdGuard Home
 # Logic: If config exists, run as non-root. If not (setup), run as root.

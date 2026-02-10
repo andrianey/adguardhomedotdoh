@@ -1,10 +1,28 @@
 # ============================================
-# Stage 1: Extract AdGuard Home from official image
+# Stage 1: Extract AdGuard Home from official image (Edge/Nightly)
 # ============================================
-FROM adguard/adguardhome:latest AS adguard-source
+FROM adguard/adguardhome:edge AS adguard-source
 
 # ============================================
-# Stage 2: Unbound Builder (Compiled with Redis/Valkey support)
+# Stage 2: Build dnsproxy from source (Fixes CVEs)
+# ============================================
+FROM golang:alpine AS builder_dnsproxy
+
+RUN apk add --no-cache git
+
+WORKDIR /src/dnsproxy
+# Clone latest source
+RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
+# Force update quic-go to fix CVE-2025-64702
+RUN go get github.com/quic-go/quic-go@latest && go mod tidy
+# Build binary
+RUN go build -v -ldflags "-s -w" -o /usr/local/bin/dnsproxy .
+
+# Download root.hints for Unbound
+RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
+
+# ============================================
+# Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
 FROM alpine:edge AS builder_unbound
 
@@ -37,18 +55,16 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && make install DESTDIR=/tmp/unbound/install
 
 # ============================================
-# Stage 3: Final image with Alpine Edge
+# Stage 4: Final image with Alpine Edge
 # ============================================
 FROM alpine:edge
 
 # Set labels for the image
 LABEL maintainer="andrianey"
-LABEL description="AdGuard Home with DoH/DoT support (Stubby, Unbound, Cloudflared)"
+LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound)"
 
 # 1. Install dependencies
-# - Added: valkey (Redis replacement), hiredis (for Unbound)
 RUN apk update && apk add --no-cache \
-    stubby \
     libevent \
     hiredis \
     valkey \
@@ -58,6 +74,7 @@ RUN apk update && apk add --no-cache \
     libcap \
     su-exec \
     tini \
+    bash \
     && rm -rf /var/cache/apk/*
 
 # 2. Copy AdGuard Home binary from the official image
@@ -74,41 +91,28 @@ RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
     chmod 700 /opt/adguardhome/work && \
     setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome
 
-# 5. Setup Unbound (Copy from builder)
+# 5. Copy dnsproxy from builder
+COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+RUN chown adguard:adguard /usr/local/bin/dnsproxy && \
+    chmod 755 /usr/local/bin/dnsproxy && \
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
+
+# 6. Setup Unbound (Copy from builder)
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
-# Libraries are handled by apk add hiredis/libevent/openssl
+COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/lib/
+# Copy root hints from dnsproxy builder (helper)
+COPY --from=builder_dnsproxy /tmp/root.hints /var/lib/unbound/root.hints
 
 RUN mkdir -p /var/lib/unbound/ /etc/unbound/ && \
-    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root && \
     chown -R adguard:adguard /var/lib/unbound /etc/unbound && \
     setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound
 
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 
-# 6. Setup Stubby
-RUN mkdir -p /etc/stubby/ && \
-    chown -R adguard:adguard /etc/stubby
-COPY stubby/stubby.yml /etc/stubby/stubby.yml
-
-# 7. Install Cloudflared
-RUN set -eux; \
-    arch="$(uname -m)"; \
-    case "$arch" in \
-    aarch64) CL_ARCH="arm64" ;; \
-    x86_64)  CL_ARCH="amd64" ;; \
-    armv7l)  CL_ARCH="arm" ;; \
-    armhf)   CL_ARCH="arm" ;; \
-    *) echo "Unsupported architecture: $arch"; exit 1 ;; \
-    esac; \
-    echo "Downloading Cloudflared for $CL_ARCH..."; \
-    wget -qO /usr/local/bin/cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CL_ARCH}" && \
-    chmod +x /usr/local/bin/cloudflared && \
-    chown adguard:adguard /usr/local/bin/cloudflared
-
-# 8. Entrypoint script (Ensure it uses /bin/sh)
+# 7. Entrypoint script (Ensure it uses /bin/sh)
 COPY entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/entrypoint.sh && \
     sed -i 's/\r$//' /opt/entrypoint.sh
