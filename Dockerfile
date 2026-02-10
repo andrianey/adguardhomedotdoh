@@ -6,82 +6,24 @@
 # ============================================================================
 
 # -----------------------------------------------------------------------------
-# Stage 1: Builder stage for AdGuard Home (using Alpine for speed)
+# Stage 1: Source for AdGuard Home (Edge/Nightly for latest fixes)
 # -----------------------------------------------------------------------------
-FROM alpine:latest AS builder_adguard
-
-RUN apk update && apk add --no-cache \
-    wget \
-    ca-certificates
-
-# Download AdGuard Home based on architecture
-RUN set -eux; \
-    ARCH="$(uname -m)"; \
-    echo "Detected architecture: $ARCH"; \
-    case "$ARCH" in \
-    aarch64|arm64) \
-    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz"; \
-    ;; \
-    armv7l|armhf) \
-    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz"; \
-    ;; \
-    x86_64|amd64) \
-    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"; \
-    ;; \
-    *) \
-    echo "Unsupported architecture: $ARCH"; \
-    exit 1; \
-    ;; \
-    esac; \
-    echo "Downloading AdGuard Home from: ${AGH_URL}"; \
-    wget -O /tmp/adguardhome.tar.gz "${AGH_URL}"; \
-    tar -xzf /tmp/adguardhome.tar.gz -C /tmp; \
-    mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome; \
-    chmod +x /usr/local/bin/AdGuardHome; \
-    echo "AdGuard Home installed successfully"
+FROM adguard/adguardhome:edge AS adguard_source
 
 # -----------------------------------------------------------------------------
-# Stage 2: Helper stage to download dnsproxy and root.hints
+# Stage 2: Build dnsproxy from source (Fixes CVEs in deps and Go stdlib)
 # -----------------------------------------------------------------------------
-FROM alpine:latest AS builder_helpers
+FROM golang:alpine AS builder_dnsproxy
 
-RUN apk update && apk add --no-cache curl jq ca-certificates
+RUN apk add --no-cache git
 
-# Download dnsproxy
-RUN set -eux; \
-    ARCH="$(uname -m)"; \
-    case "$ARCH" in \
-    aarch64|arm64) \
-    DNSPROXY_ARCH="linux-arm64"; \
-    ;; \
-    armv7l|armhf) \
-    DNSPROXY_ARCH="linux-armv7"; \
-    ;; \
-    x86_64|amd64) \
-    DNSPROXY_ARCH="linux-amd64"; \
-    ;; \
-    *) \
-    echo "Unsupported architecture: $ARCH"; \
-    exit 1; \
-    ;; \
-    esac; \
-    # Fetch latest release URL dynamically
-    # Use pattern matching to find the tar.gz asset for the architecture
-    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
-    jq -r ".assets[] | select(.name | contains(\"${DNSPROXY_ARCH}\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
-    if [ -z "$DNSPROXY_URL" ] || [ "$DNSPROXY_URL" = "null" ]; then \
-    # Fallback for armv7 variants if specific armv7 not found, try arm7 or arm6
-    if [ "$DNSPROXY_ARCH" = "linux-armv7" ]; then \
-    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
-    jq -r ".assets[] | select(.name | contains(\"linux-arm7\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
-    fi; \
-    fi; \
-    echo "Downloading dnsproxy from: ${DNSPROXY_URL}"; \
-    curl -L -o /tmp/dnsproxy.tar.gz "${DNSPROXY_URL}"; \
-    tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
-    # Find binary regardless of directory structure
-    find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
-    chmod +x /usr/local/bin/dnsproxy
+WORKDIR /src/dnsproxy
+# Clone latest source
+RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
+# Force update quic-go to fix CVE-2025-64702
+RUN go get github.com/quic-go/quic-go@latest && go mod tidy
+# Build binary
+RUN go build -v -ldflags "-s -w" -o /usr/local/bin/dnsproxy .
 
 # Download root.hints for Unbound
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
@@ -163,14 +105,14 @@ RUN mkdir -p /opt/adguardhome/conf \
     && mkdir -p /dev \
     && mknod -m 666 /dev/null c 1 3 2>/dev/null || true
 
-# Copy AdGuard Home from Alpine builder
-COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardHome
+# Copy AdGuard Home from source stage
+COPY --from=adguard_source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
 
-# Copy dnsproxy from helpers builder
-COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+# Copy dnsproxy from builder_dnsproxy
+COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 
 # Copy root.hints for Unbound
-COPY --from=builder_helpers /tmp/root.hints /var/lib/unbound/root.hints
+COPY --from=builder_dnsproxy /tmp/root.hints /var/lib/unbound/root.hints
 
 # Copy Unbound from builder_unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound

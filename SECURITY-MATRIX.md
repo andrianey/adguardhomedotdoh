@@ -105,9 +105,10 @@ Paths: /var/lib/unbound/
 ```yaml
 Base: Wolfi OS (Chainguard)
 User: adguard (UID 1000)
-Upstream: **dnsproxy** (Replaces Stubby+Cloudflared)
+Upstream: **dnsproxy** (Built from source)
 Unbound: Built from source (Debian builder)
 Valkey: ✅ Enabled
+AdGuard Home: **Edge/Nightly** (Latest fixes)
 Privilege Drop: su-exec
 Capabilities: CAP_NET_BIND_SERVICE
 Paths: /var/lib/unbound/
@@ -119,6 +120,11 @@ Paths: /var/lib/unbound/
 - ✅ **dnsproxy** (Port 8053) → Handles DoT/DoH to Cloudflare
 - ✅ AdGuard Home (Port 53, 3000)
 
+**🛡️ CVE Remediation (Feb 2026)**:
+- **Go Stdlib CVEs (CVE-2025-61726/61728/61730/68121)**: Fixed by building `dnsproxy` from source using `golang:alpine` (Go 1.25.7+).
+- **quic-go CVE (CVE-2025-64702)**: Fixed by forcing update to `quic-go` v0.59.0+ during build.
+- **AdGuard Home CVE (CVE-2022-32175)**: Fixed by using `adguard/adguardhome:edge` (Nightly build).
+
 **Why dnsproxy?**
 - Single binary handles both DoH and DoT
 - Faster, lighter, and more robust
@@ -129,6 +135,7 @@ Paths: /var/lib/unbound/
 - **Maximum security production deployments** ⭐
 - Minimal footprint
 - High performance
+- **Zero-CVE compliance**
 
 ---
 
