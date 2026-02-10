@@ -40,28 +40,25 @@ echo "[2/6] Starting Unbound DNS resolver..."
 UNBOUND_PID=$!
 sleep 1
 
-# 3. Start Cloudflared (DNS-over-HTTPS proxy)
-echo "[3/6] Starting Cloudflared DoH proxy..."
-/usr/local/bin/cloudflared proxy-dns \
-    --port 5053 \
-    --upstream https://1.1.1.1/dns-query \
-    --upstream https://1.0.0.1/dns-query \
-    --upstream https://2606:4700:4700::1111/dns-query \
-    --upstream https://2606:4700:4700::1001/dns-query &
-CLOUDFLARED_PID=$!
-sleep 1
-
-# 4. Start Stubby (DNS-over-TLS proxy)
-echo "[4/6] Starting Stubby DoT proxy..."
-/usr/local/bin/stubby -C /etc/stubby/stubby.yml -l &
-STUBBY_PID=$!
+# 3. Start dnsproxy (DoH/DoT upstream)
+echo "[3/6] Starting dnsproxy (DoH/DoT upstream)..."
+/usr/local/bin/dnsproxy \
+    -l 127.0.0.1 \
+    -p 8053 \
+    -u tls://1.1.1.1 \
+    -u tls://1.0.0.1 \
+    -u https://1.1.1.1/dns-query \
+    -u https://1.0.0.1/dns-query \
+    --cache-size=0 \
+    --verbose &
+DNSPROXY_PID=$!
 sleep 1
 
 # 5. Show service status
 echo "[5/6] Services started:"
+echo "       - Valkey:     Running (Unix Socket)"
 echo "       - Unbound:    PID $UNBOUND_PID (port 5335)"
-echo "       - Cloudflared: PID $CLOUDFLARED_PID (port 5053)"
-echo "       - Stubby:     PID $STUBBY_PID (port 8053)"
+echo "       - dnsproxy:   PID $DNSPROXY_PID (port 8053)"
 
 # 6. Start AdGuard Home (foreground)
 echo "[6/6] Starting AdGuard Home..."
