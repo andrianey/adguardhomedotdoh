@@ -41,6 +41,8 @@ echo "[3/7] Starting dnsproxy (DoH/DoT upstream)..."
 # Upstreams: Cloudflare DoT and DoH
 # Default Upstreams (Cloudflare) if not provided
 DNSPROXY_UPSTREAM=${DNSPROXY_UPSTREAM:-"tls://1.1.1.1 tls://1.0.0.1 https://1.1.1.1/dns-query https://1.0.0.1/dns-query"}
+# Sanitize: Replace commas with spaces to support comma-separated lists
+DNSPROXY_UPSTREAM=$(echo "$DNSPROXY_UPSTREAM" | tr ',' ' ')
 # Additional Flags
 DNSPROXY_FLAGS=${DNSPROXY_FLAGS:-"--verbose"}
 
@@ -49,6 +51,8 @@ UPSTREAM_ARGS=""
 for u in $DNSPROXY_UPSTREAM; do
     UPSTREAM_ARGS="$UPSTREAM_ARGS -u $u"
 done
+
+echo "       Configured Upstreams: $DNSPROXY_UPSTREAM"
 
 su-exec adguard /usr/local/bin/dnsproxy \
     -l 127.0.0.1 \
