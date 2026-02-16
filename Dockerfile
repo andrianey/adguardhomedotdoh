@@ -28,10 +28,10 @@ RUN VERSION=$(git describe --tags --always --dirty) && \
     BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
     COMMIT_TIME=$(git log -1 --format=%ct) && \
     go build -v -ldflags "-s -w \
-    -X main.version=${VERSION} \
-    -X main.revision=${REVISION} \
-    -X main.branch=${BRANCH} \
-    -X main.committime=${COMMIT_TIME}" \
+    -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
+    -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
+    -X github.com/AdguardTeam/dnsproxy/internal/version.branch=${BRANCH} \
+    -X github.com/AdguardTeam/dnsproxy/internal/version.committime=${COMMIT_TIME}" \
     -o /usr/local/bin/dnsproxy .
 
 # Download root.hints for Unbound
