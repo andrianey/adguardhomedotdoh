@@ -22,8 +22,17 @@ WORKDIR /src/dnsproxy
 RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
 # Force update quic-go to fix CVE-2025-64702
 RUN go get github.com/quic-go/quic-go@latest && go mod tidy
-# Build binary
-RUN go build -v -ldflags "-s -w" -o /usr/local/bin/dnsproxy .
+# Extract version info from git
+RUN VERSION=$(git describe --tags --always --dirty) && \
+    REVISION=$(git rev-parse --short HEAD) && \
+    BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
+    COMMIT_TIME=$(git log -1 --format=%ct) && \
+    go build -v -ldflags "-s -w \
+    -X main.version=${VERSION} \
+    -X main.revision=${REVISION} \
+    -X main.branch=${BRANCH} \
+    -X main.committime=${COMMIT_TIME}" \
+    -o /usr/local/bin/dnsproxy .
 
 # Download root.hints for Unbound
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
