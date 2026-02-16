@@ -36,4 +36,6 @@ jobs:
           platforms: ${{ contains(github.ref_name, 'wolfi') && 'linux/amd64,linux/arm64' || 'linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6' }}
           push: true
           no-cache: true
+          provenance: true
+          sbom: true
           tags: andrianey/adguardhomedotdoh:${{ github.ref_name }}-auto
