@@ -30,7 +30,6 @@ variables:
     - docker run --privileged --rm tonistiigi/binfmt --install all
     - docker buildx create --use --name dns-builder
 
-# Combined Multi-Arch Build
 build_auto:
   <<: *docker_setup
   stage: build
@@ -50,33 +49,46 @@ build_auto:
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
-# NEW: This was missing! This creates the "Manifest" stage visually
 create_manifest:
   <<: *docker_setup
   stage: manifest
   script:
-    - echo "Manifest stage for $CI_COMMIT_BRANCH"
-    # In this specific project, build_auto already creates a manifest.
-    # We use this stage to verify the manifest exists before promoting.
+    - echo "Verifying manifest for $CI_COMMIT_BRANCH"
     - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
   needs: ["build_auto"]
 
-# Manual Promotion
 promote_live:
   <<: *docker_setup
   stage: promote
+  manual_confirmation: "Are you sure you want to promote $CI_COMMIT_BRANCH to live?"
   script:
     - |
+      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then
+        SOURCE_TAG="${TARGET_BRANCH}-auto"
+        DEST_TAG="${TARGET_BRANCH}"
+      else
+        SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"
+        DEST_TAG="${CI_COMMIT_BRANCH}"
+      fi
+
+      echo "Promoting $SOURCE_TAG to $DEST_TAG"
+
       docker buildx imagetools create \
-        -t $IMAGE_NAME:${TARGET_BRANCH} \
-        $IMAGE_NAME:${TARGET_BRANCH}-auto
+        -t $IMAGE_NAME:${DEST_TAG} \
+        $IMAGE_NAME:${SOURCE_TAG}
     - |
       TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\": \"${DOCKER_HUB_USERNAME}\", \"password\": \"${DOCKER_HUB_PASSWORD}\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
-      curl -i -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${TARGET_BRANCH}-auto"
+      
+      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then
+        DEL_TAG="${TARGET_BRANCH}-auto"
+      else
+        DEL_TAG="${CI_COMMIT_BRANCH}-auto"
+      fi
+      
+      curl -i -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${DEL_TAG}"
   rules:
-    # This makes the button show up on your main branches
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
       when: manual
       allow_failure: false
