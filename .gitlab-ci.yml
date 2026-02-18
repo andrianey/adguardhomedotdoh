@@ -1,0 +1,81 @@
+stages:
+  - build
+  - manifest
+  - promote
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_HOST: "tcp://docker:2375"
+  IMAGE_NAME: andrianey/adguardhomedotdoh
+  DOCKER_BUILDKIT: "1"
+  TARGET_BRANCH:
+    value: "latest"
+    options:
+      - "latest"
+      - "latest-wolfi"
+      - "hardened"
+      - "hardened-wolfi"
+    description: "Branch to promote (latest, latest-wolfi, hardened, hardened-wolfi)"
+
+.docker_setup: &docker_setup
+  tags:
+    - oracle
+  image: docker:24-cli
+  services:
+    - name: docker:24-dind
+  before_script:
+    - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+    - docker run --privileged --rm tonistiigi/binfmt --install all
+    - docker buildx create --use --name dns-builder
+
+# Combined Multi-Arch Build
+build_auto:
+  <<: *docker_setup
+  stage: build
+  script:
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == *"wolfi"* ]]; then
+        PLATFORMS="linux/amd64,linux/arm64"
+      else
+        PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
+      fi
+      docker buildx build \
+        --platform "$PLATFORMS" \
+        --provenance=false \
+        --no-cache \
+        -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
+        --push .
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+
+# NEW: This was missing! This creates the "Manifest" stage visually
+create_manifest:
+  <<: *docker_setup
+  stage: manifest
+  script:
+    - echo "Manifest stage for $CI_COMMIT_BRANCH"
+    # In this specific project, build_auto already creates a manifest.
+    # We use this stage to verify the manifest exists before promoting.
+    - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+  needs: ["build_auto"]
+
+# Manual Promotion
+promote_live:
+  <<: *docker_setup
+  stage: promote
+  script:
+    - |
+      docker buildx imagetools create \
+        -t $IMAGE_NAME:${TARGET_BRANCH} \
+        $IMAGE_NAME:${TARGET_BRANCH}-auto
+    - |
+      TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\": \"${DOCKER_HUB_USERNAME}\", \"password\": \"${DOCKER_HUB_PASSWORD}\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
+      curl -i -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${TARGET_BRANCH}-auto"
+  rules:
+    # This makes the button show up on your main branches
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+      when: manual
+      allow_failure: false
