@@ -9,7 +9,6 @@ variables:
   DOCKER_HOST: "tcp://docker:2375"
   IMAGE_NAME: andrianey/adguardhomedotdoh
   DOCKER_BUILDKIT: "1"
-  # MOVED TO GLOBAL LEVEL: This makes it show up in the "Run Pipeline" UI
   TARGET_BRANCH:
     value: "latest"
     options:
@@ -30,7 +29,7 @@ variables:
     - docker run --privileged --rm tonistiigi/binfmt --install all
     - docker buildx create --use --name dns-builder
 
-# Combined Multi-Arch Build (Auto-Tag)
+# Combined Multi-Arch Build
 build_auto:
   <<: *docker_setup
   stage: build
@@ -49,14 +48,19 @@ build_auto:
         --push .
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-      changes:
-        - "**/*"
-        - "!README.md"
-        - "!LICENSE"
-        - "!docker-compose.yml"
-        - "!SECURITY-MATRIX.md"
-        - "!.gemini/**"
-        - "!.gitignore"
+
+# NEW: This was missing! This creates the "Manifest" stage visually
+create_manifest:
+  <<: *docker_setup
+  stage: manifest
+  script:
+    - echo "Manifest stage for $CI_COMMIT_BRANCH"
+    # In this specific project, build_auto already creates a manifest.
+    # We use this stage to verify the manifest exists before promoting.
+    - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+  needs: ["build_auto"]
 
 # Manual Promotion
 promote_live:
@@ -71,5 +75,7 @@ promote_live:
       TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\": \"${DOCKER_HUB_USERNAME}\", \"password\": \"${DOCKER_HUB_PASSWORD}\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
       curl -i -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${TARGET_BRANCH}-auto"
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "web"'
+    # This makes the button show up on your main branches
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
       when: manual
+      allow_failure: false
