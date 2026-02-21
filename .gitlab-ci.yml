@@ -54,11 +54,6 @@ build_auto:
         PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
       fi
 
-      case "$CI_COMMIT_BRANCH" in
-        hardened|hardened-wolfi) BUILD_TYPE="🔨 src" ;;
-        *) BUILD_TYPE="📦 pkg" ;;
-      esac
-
       echo "==> Building amd64 image for version inspection..."
       docker buildx build --platform linux/amd64 --provenance=false --no-cache --load -t inspect-image .
 
@@ -78,7 +73,6 @@ build_auto:
         echo "AGH_VER=\"$AGH_VAR_CLEAN\""
         echo "UNBOUND_VER=\"$UNBOUND_VAR_CLEAN\""
         echo "DNSPROXY_VER=\"$DNSPROXY_VAR_CLEAN\""
-        echo "BUILD_TYPE=\"$BUILD_TYPE\""
         echo "BUILD_DATE=\"$BUILD_DATE\""
       } > versions.env
 
@@ -127,7 +121,7 @@ update_readme_badge:
       cat << 'PYEOF' > update_readme.py
       import sys, re, textwrap
       def run():
-          branch, agh, ub, dp, btype, bdate = sys.argv[1:]
+          branch, agh, ub, dp, bdate = sys.argv[1:]
           def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
           def badge(l, v, c, logo=None):
               url = f"https://img.shields.io/badge/{l}-{encode(v)}-{c}"
@@ -136,14 +130,18 @@ update_readme_badge:
           agh_badge = badge("AGH", agh, "6ABF4B", "adguard")
           ub_badge  = badge("Unbound", ub, "0077CC")
           dp_badge  = badge("dnsproxy", dp, "6ABF4B", "adguard")
-          replacement = f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {btype} | `{bdate}` |\n'
+          # Match the row and capture the static trailing columns (Base Image, Security Level, Description)
+          # so CI only updates badge+date cells and leaves the rest untouched.
+          pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{4}}(.*)")
           with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
           new_lines = []
           updated = False
-          pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|.*$")
           for line in lines:
-              if pattern.match(line):
-                  new_lines.append(replacement); updated = True
+              m = pattern.match(line.rstrip('\r\n'))
+              if m:
+                  tail = m.group(1)  # " Base Image | Security Level | Description |"
+                  new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | `{bdate}` | {tail}\n')
+                  updated = True
               else: new_lines.append(line)
           if updated:
               with open('README.md', 'w', encoding='utf-8') as f: f.writelines(new_lines)
@@ -153,7 +151,7 @@ update_readme_badge:
       PYEOF
 
       python3 -c "import textwrap; f=open('update_readme.py'); c=f.read(); f.close(); open('update_readme.py','w').write(textwrap.dedent(c))"
-      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER" "$BUILD_TYPE" "$BUILD_DATE"
+      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER" "$BUILD_DATE"
 
       git add README.md
       if git diff-index --quiet HEAD -- README.md; then echo "No changes."; else
