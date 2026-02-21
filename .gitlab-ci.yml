@@ -1,7 +1,20 @@
 stages:
   - build
   - manifest
+  - badge
   - promote
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[skip ci\]/i'
+      when: never
+    - changes:
+        - Dockerfile
+        - entrypoint.sh
+        - unbound/**/*
+        - crontab/**/*
+        - .gitlab-ci.yml
+    - when: never
 
 variables:
   DOCKER_DRIVER: overlay2
@@ -25,7 +38,7 @@ variables:
   services:
     - name: docker:24-dind
   before_script:
-    - apk add --no-cache curl jq git python3
+    - apk add --no-cache curl jq
     - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
     - docker run --privileged --rm tonistiigi/binfmt --install all
     - docker buildx create --use --name dns-builder
@@ -35,195 +48,129 @@ build_auto:
   stage: build
   script:
     - |
-      # ── 1. Platform selection ──────────────────────────────────────────────
       if [[ "$CI_COMMIT_BRANCH" == *"wolfi"* ]]; then
         PLATFORMS="linux/amd64,linux/arm64"
       else
         PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
       fi
 
-      # Build type label for README (src branches build from source, others use pkgs)
       case "$CI_COMMIT_BRANCH" in
         hardened|hardened-wolfi) BUILD_TYPE="🔨 src" ;;
         *) BUILD_TYPE="📦 pkg" ;;
       esac
 
-      # ── 2. Build amd64 image locally to inspect real binary versions ───────
       echo "==> Building amd64 image for version inspection..."
-      docker buildx build \
-        --platform linux/amd64 \
-        --provenance=false \
-        --no-cache \
-        --load \
-        -t inspect-image .
+      docker buildx build --platform linux/amd64 --provenance=false --no-cache --load -t inspect-image .
 
-      # ── 3. Extract component versions by running the actual binaries ───────
-      echo "==> Extracting component versions from built image..."
-
-      # AdGuard Home version
-      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome \
-        inspect-image --version 2>&1 \
-        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
-
-      # dnsproxy version – try embedded file first (src builds), then binary
-      DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image \
-        /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' \
-        || docker run --rm --entrypoint=/usr/local/bin/dnsproxy \
-          inspect-image --version 2>&1 \
-          | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 \
-        || echo "n/a")
-
-      DNSPROXY_REVISION=$(docker run --rm --entrypoint=cat inspect-image \
-        /tmp/dnsproxy_revision 2>/dev/null | tr -d '\n\r ' || echo "")
-
-      # Unbound version – try embedded file first (src builds), then binary
-      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image \
-        /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' \
-        || docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib \
-          --entrypoint=/usr/sbin/unbound inspect-image \
-          -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
-        || echo "n/a")
-
+      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
+      DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
+      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "n/a")
+      
       docker rmi inspect-image 2>/dev/null || true
-
       BUILD_DATE=$(date -u +"%Y-%m-%d %H:%MZ")
-      VCS_REF="$CI_COMMIT_SHORT_SHA"
 
-      echo ""
-      echo "==> ┌─ Component Versions for '${CI_COMMIT_BRANCH}' ─────────────"
-      echo "    │  AdGuardHome : ${AGH_VER}"
-      echo "    │  dnsproxy    : ${DNSPROXY_VER} (rev: ${DNSPROXY_REVISION})"
-      echo "    │  Unbound     : ${UNBOUND_VER}"
-      echo "    │  Build type  : ${BUILD_TYPE}"
-      echo "    │  Build date  : ${BUILD_DATE}"
-      echo "    └────────────────────────────────────────────────────────────"
-      echo ""
+      # ── Clean and Quote for Dotenv (Fixes 400 Bad Request) ─────────────────
+      AGH_VAR_CLEAN=$(echo "$AGH_VER" | tr -d '\n\r')
+      UNBOUND_VAR_CLEAN=$(echo "$UNBOUND_VER" | tr -d '\n\r')
+      DNSPROXY_VAR_CLEAN=$(echo "$DNSPROXY_VER" | tr -d '\n\r')
 
-      # ── 4. Update README.md version table for this branch ─────────────────
-      python3 - "${CI_COMMIT_BRANCH}" "${AGH_VER}" "${UNBOUND_VER}" \
-                "${DNSPROXY_VER}" "${BUILD_TYPE}" "${BUILD_DATE}" <<'PYEOF'
-      import sys, re
+      {
+        echo "AGH_VER=\"$AGH_VAR_CLEAN\""
+        echo "UNBOUND_VER=\"$UNBOUND_VAR_CLEAN\""
+        echo "DNSPROXY_VER=\"$DNSPROXY_VAR_CLEAN\""
+        echo "BUILD_TYPE=\"$BUILD_TYPE\""
+        echo "BUILD_DATE=\"$BUILD_DATE\""
+      } > versions.env
 
-      branch, agh, ub, dp, btype, bdate = sys.argv[1:]
-
-      # Encode a version string for a Shields.io static badge URL.
-      # Shields.io rules: '-' → '--',  '_' → '__',  ' ' → '_'
-      def encode(v):
-          return v.replace('_', '__').replace('-', '--').replace(' ', '_')
-
-      # Build a Shields.io badge markdown string.
-      # Falls back to a neutral gray badge for unknown/n/a values.
-      def badge(label, version, color, logo=None):
-          if not version or version in ('n/a', 'unknown', '—', 'pending'):
-              url = f"https://img.shields.io/badge/{label}-unknown-lightgrey"
-          else:
-              v = encode(version)
-              url = f"https://img.shields.io/badge/{label}-{v}-{color}"
-              if logo:
-                  url += f"?logo={logo}&logoColor=white"
-          return f"![{version}]({url})"
-
-      # Per-component badge colours and optional logo slugs
-      agh_badge = badge("AGH",      agh, "6ABF4B", "adguard")
-      ub_badge  = badge("Unbound",  ub,  "0077CC")
-      dp_badge  = badge("dnsproxy", dp,  "6ABF4B", "adguard")
-
-      with open('README.md', 'r', encoding='utf-8') as f:
-          content = f.read()
-
-      # Match the table row for this branch (within a single line) and replace
-      pattern = re.compile(
-          r'\| `' + re.escape(branch) + r'` \|(?:[^|\n]*\|){5}',
-          re.MULTILINE
-      )
-      replacement = (
-          f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {btype} | `{bdate}` |'
-      )
-      new_content, n = pattern.subn(replacement, content)
-      if n == 0:
-          print(f'WARNING: No row matched for branch "{branch}" in README.md')
-      else:
-          print(f'Updated README.md row for "{branch}":')
-          print(f'  {replacement}')
-
-      with open('README.md', 'w', encoding='utf-8') as f:
-          f.write(new_content)
-      PYEOF
-
-      # ── 5. Commit README.md back to repo (non-blocking) ───────────────────
-      git config user.email "ci-bot@gitlab.com"
-      git config user.name "GitLab CI Bot"
-      git remote set-url origin \
-        "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
-      git add README.md
-      if git diff-index --quiet HEAD -- README.md; then
-        echo "==> README.md unchanged, skipping commit."
-      else
-        git commit -m \
-          "ci: [skip ci] update versions for ${CI_COMMIT_BRANCH} (AGH:${AGH_VER} UB:${UNBOUND_VER} DP:${DNSPROXY_VER})"
-        git push origin HEAD:${CI_COMMIT_BRANCH} \
-          || echo "WARNING: README push failed (non-blocking)"
-      fi
-
-      # ── 6. Build & push full multi-platform image with version labels ──────
-      echo "==> Building and pushing multi-platform image..."
-      docker buildx build \
-        --platform "$PLATFORMS" \
-        --provenance=false \
-        --no-cache \
-        --build-arg ADGUARDHOME_VERSION="${AGH_VER}" \
-        --build-arg DNSPROXY_VERSION="${DNSPROXY_VER}" \
-        --build-arg DNSPROXY_REVISION="${DNSPROXY_REVISION}" \
-        --build-arg UNBOUND_VERSION="${UNBOUND_VER}" \
-        --build-arg BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-        --build-arg VCS_REF="${VCS_REF}" \
-        --build-arg BRANCH="${CI_COMMIT_BRANCH}" \
-        -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
-        --push .
+      echo "==> Pushing multi-platform image..."
+      docker buildx build --platform "$PLATFORMS" --provenance=false --no-cache -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
+  artifacts:
+    reports:
+      dotenv: versions.env
+    expire_in: 1 hour
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-
 
 create_manifest:
   <<: *docker_setup
   stage: manifest
   script:
-    - echo "Verifying manifest for $CI_COMMIT_BRANCH"
     - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
   needs: ["build_auto"]
 
+update_readme_badge:
+  tags:
+    - oracle
+  image: alpine:latest
+  stage: badge
+  before_script:
+    - apk add --no-cache git python3
+  needs:
+    - job: build_auto
+      artifacts: true
+  script:
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == *"hardened-wolfi"* ]]; then TARGET_ROW="hardened-wolfi"
+      elif [[ "$CI_COMMIT_BRANCH" == *"latest-wolfi"* ]]; then TARGET_ROW="latest-wolfi"
+      elif [[ "$CI_COMMIT_BRANCH" == *"hardened"* ]]; then TARGET_ROW="hardened"
+      else TARGET_ROW="latest"; fi
+
+      git config user.email "ci-bot@andrianey.my.id"
+      git config user.name "CI Bot"
+      git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      
+      git fetch origin latest
+      git checkout latest
+
+      cat << 'PYEOF' > update_readme.py
+      import sys, re, textwrap
+      def run():
+          branch, agh, ub, dp, btype, bdate = sys.argv[1:]
+          def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
+          def badge(l, v, c, logo=None):
+              url = f"https://img.shields.io/badge/{l}-{encode(v)}-{c}"
+              if logo: url += f"?logo={logo}&logoColor=white"
+              return f"![{v}]({url})"
+          agh_badge = badge("AGH", agh, "6ABF4B", "adguard")
+          ub_badge  = badge("Unbound", ub, "0077CC")
+          dp_badge  = badge("dnsproxy", dp, "6ABF4B", "adguard")
+          replacement = f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {btype} | `{bdate}` |\n'
+          with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
+          new_lines = []
+          updated = False
+          pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|.*$")
+          for line in lines:
+              if pattern.match(line):
+                  new_lines.append(replacement); updated = True
+              else: new_lines.append(line)
+          if updated:
+              with open('README.md', 'w', encoding='utf-8') as f: f.writelines(new_lines)
+              print(f"SUCCESS: Updated row '{branch}'")
+          else: sys.exit(1)
+      if __name__ == "__main__": run()
+      PYEOF
+
+      python3 -c "import textwrap; f=open('update_readme.py'); c=f.read(); f.close(); open('update_readme.py','w').write(textwrap.dedent(c))"
+      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER" "$BUILD_TYPE" "$BUILD_DATE"
+
+      git add README.md
+      if git diff-index --quiet HEAD -- README.md; then echo "No changes."; else
+        git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
+        git push origin HEAD:latest
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+
 promote_live:
   <<: *docker_setup
   stage: promote
-  manual_confirmation: "Are you sure you want to promote $CI_COMMIT_BRANCH to live?"
   script:
     - |
-      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then
-        SOURCE_TAG="${TARGET_BRANCH}-auto"
-        DEST_TAG="${TARGET_BRANCH}"
-      else
-        SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"
-        DEST_TAG="${CI_COMMIT_BRANCH}"
-      fi
-
-      echo "Promoting $SOURCE_TAG to $DEST_TAG"
-
-      docker buildx imagetools create \
-        -t $IMAGE_NAME:${DEST_TAG} \
-        $IMAGE_NAME:${SOURCE_TAG}
-    - |
-      TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d "{\"username\": \"${DOCKER_HUB_USERNAME}\", \"password\": \"${DOCKER_HUB_PASSWORD}\"}" https://hub.docker.com/v2/users/login/ | jq -r .token)
-      
-      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then
-        DEL_TAG="${TARGET_BRANCH}-auto"
-      else
-        DEL_TAG="${CI_COMMIT_BRANCH}-auto"
-      fi
-      
-      curl -i -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${DEL_TAG}"
+      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then SOURCE_TAG="${TARGET_BRANCH}-auto"; DEST_TAG="${TARGET_BRANCH}"
+      else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
+      docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
       when: manual
-      allow_failure: false
