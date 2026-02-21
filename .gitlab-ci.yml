@@ -105,23 +105,46 @@ build_auto:
       import sys, re
 
       branch, agh, ub, dp, btype, bdate = sys.argv[1:]
+
+      # Encode a version string for a Shields.io static badge URL.
+      # Shields.io rules: '-' → '--',  '_' → '__',  ' ' → '_'
+      def encode(v):
+          return v.replace('_', '__').replace('-', '--').replace(' ', '_')
+
+      # Build a Shields.io badge markdown string.
+      # Falls back to a neutral gray badge for unknown/n/a values.
+      def badge(label, version, color, logo=None):
+          if not version or version in ('n/a', 'unknown', '—', 'pending'):
+              url = f"https://img.shields.io/badge/{label}-unknown-lightgrey"
+          else:
+              v = encode(version)
+              url = f"https://img.shields.io/badge/{label}-{v}-{color}"
+              if logo:
+                  url += f"?logo={logo}&logoColor=white"
+          return f"![{version}]({url})"
+
+      # Per-component badge colours and optional logo slugs
+      agh_badge = badge("AGH",      agh, "6ABF4B", "adguard")
+      ub_badge  = badge("Unbound",  ub,  "0077CC")
+      dp_badge  = badge("dnsproxy", dp,  "6ABF4B", "adguard")
+
       with open('README.md', 'r', encoding='utf-8') as f:
           content = f.read()
 
-      # Match the table row for this branch and replace it in-place
-      # Works on both LF and CRLF line endings
+      # Match the table row for this branch (within a single line) and replace
       pattern = re.compile(
-          r'(\| `' + re.escape(branch) + r'` \| ).*?(\| ).*?(\| ).*?(\| ).*?(\| ).*?(\|)',
+          r'\| `' + re.escape(branch) + r'` \|(?:[^|\n]*\|){5}',
           re.MULTILINE
       )
       replacement = (
-          f'| `{branch}` | `{agh}` | `{ub}` | `{dp}` | {btype} | `{bdate}` |'
+          f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {btype} | `{bdate}` |'
       )
       new_content, n = pattern.subn(replacement, content)
       if n == 0:
           print(f'WARNING: No row matched for branch "{branch}" in README.md')
       else:
-          print(f'Updated README.md row for "{branch}": {replacement}')
+          print(f'Updated README.md row for "{branch}":')
+          print(f'  {replacement}')
 
       with open('README.md', 'w', encoding='utf-8') as f:
           f.write(new_content)

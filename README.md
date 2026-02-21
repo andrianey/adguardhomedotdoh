@@ -25,10 +25,10 @@ This project provides a custom Docker image for [AdGuard Home](https://github.co
 <!-- VERSIONS_TABLE_START -->
 | Tag | AdGuardHome | Unbound | dnsproxy | How Built | Last Built (UTC) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `latest` | `—` | `—` | `—` | 📦 pkg | `—` |
-| `latest-wolfi` | `—` | `—` | `—` | 📦 pkg | `—` |
-| `hardened` | `—` | `—` | `—` | 🔨 src | `—` |
-| `hardened-wolfi` | `—` | `—` | `—` | 🔨 src | `—` |
+| `latest` | ![pending](https://img.shields.io/badge/AGH-pending-lightgrey) | ![pending](https://img.shields.io/badge/Unbound-pending-lightgrey) | ![pending](https://img.shields.io/badge/dnsproxy-pending-lightgrey) | 📦 pkg | `—` |
+| `latest-wolfi` | ![pending](https://img.shields.io/badge/AGH-pending-lightgrey) | ![pending](https://img.shields.io/badge/Unbound-pending-lightgrey) | ![pending](https://img.shields.io/badge/dnsproxy-pending-lightgrey) | 📦 pkg | `—` |
+| `hardened` | ![pending](https://img.shields.io/badge/AGH-pending-lightgrey) | ![pending](https://img.shields.io/badge/Unbound-pending-lightgrey) | ![pending](https://img.shields.io/badge/dnsproxy-pending-lightgrey) | 🔨 src | `—` |
+| `hardened-wolfi` | ![pending](https://img.shields.io/badge/AGH-pending-lightgrey) | ![pending](https://img.shields.io/badge/Unbound-pending-lightgrey) | ![pending](https://img.shields.io/badge/dnsproxy-pending-lightgrey) | 🔨 src | `—` |
 <!-- VERSIONS_TABLE_END -->
 
 > 💡 To verify the exact versions baked into any pulled image run:
