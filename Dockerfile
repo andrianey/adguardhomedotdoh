@@ -22,11 +22,13 @@ WORKDIR /src/dnsproxy
 RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
 # Force update quic-go to fix CVE-2025-64702
 RUN go get github.com/quic-go/quic-go@latest && go mod tidy
-# Extract version info from git
+# Extract version info from git and write to a file for label injection
 RUN VERSION=$(git describe --tags --always --dirty) && \
     REVISION=$(git rev-parse --short HEAD) && \
     BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
     COMMIT_TIME=$(git log -1 --format=%ct) && \
+    echo "${VERSION}" > /tmp/dnsproxy_version && \
+    echo "${REVISION}" > /tmp/dnsproxy_revision && \
     go build -v -ldflags "-s -w \
     -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
@@ -55,11 +57,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/unbound
-# Unbound version Latest
+# Unbound version Latest — extract version string and save for label injection
 RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && tar -xzf unbound-latest.tar.gz \
     && rm unbound-latest.tar.gz \
-    && cd unbound-* \
+    && UNBOUND_DIR=$(ls -d unbound-*/ | head -n1) \
+    && UNBOUND_VERSION=$(echo "$UNBOUND_DIR" | sed 's/unbound-//;s|/||') \
+    && echo "${UNBOUND_VERSION}" > /tmp/unbound_version \
+    && cd "$UNBOUND_DIR" \
     && ./configure \
     --prefix=/usr \
     --sysconfdir=/etc \
@@ -81,9 +86,33 @@ RUN mkdir -p /output/lib \
 # -----------------------------------------------------------------------------
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
+# Inject component versions captured in builder stages as build args, then as labels
+ARG ADGUARDHOME_VERSION="edge"
+ARG DNSPROXY_VERSION="unknown"
+ARG DNSPROXY_REVISION="unknown"
+ARG UNBOUND_VERSION="unknown"
+ARG BUILD_DATE
+ARG VCS_REF
+ARG BRANCH
+
 LABEL maintainer="andrianey"
 LABEL name="adguardhome-doh-dot-wolfi"
 LABEL description="AdGuard Home with DoT/DoH support using dnsproxy and Unbound on Wolfi"
+
+# OCI standard labels
+LABEL org.opencontainers.image.title="AdGuardHome DoH/DoT"
+LABEL org.opencontainers.image.description="AdGuard Home with Unbound + dnsproxy on Wolfi"
+LABEL org.opencontainers.image.source="https://gitlab.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.ref.name="${BRANCH}"
+
+# Component version labels (inspectable via: docker inspect <image> | grep label)
+LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
+LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
+LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
+LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 
 # Install runtime dependencies from Wolfi repos with retry
 RUN apk update && apk add --no-cache \
@@ -119,6 +148,10 @@ COPY --from=adguard_source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuard
 
 # Copy dnsproxy from builder_dnsproxy
 COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+# Copy version files from builder stages
+COPY --from=builder_dnsproxy /tmp/dnsproxy_version /tmp/dnsproxy_version
+COPY --from=builder_dnsproxy /tmp/dnsproxy_revision /tmp/dnsproxy_revision
+COPY --from=builder_unbound /tmp/unbound_version /tmp/unbound_version
 
 # Copy root.hints for Unbound
 COPY --from=builder_dnsproxy /tmp/root.hints /var/lib/unbound/root.hints

@@ -1,8 +1,44 @@
 # AdGuard Home with DoH/DoT Support
 
-This project provides a custom Docker image for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) pre-configured with **Unbound** (as a recursive DNS resolver), **Stubby** (for DNS-over-TLS), and **Cloudflared** (for DNS-over-HTTPS).
+This project provides a custom Docker image for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) pre-configured with **Unbound** (as a recursive DNS resolver), **dnsproxy** / **Stubby** (for DoT/DoH), and optional **Cloudflared** support.
 
-[GitHub](https://github.com/andrianey/adguardhomedotdoh)
+[GitHub](https://github.com/andrianey/adguardhomedotdoh) · [Docker Hub](https://hub.docker.com/r/andrianey/adguardhomedotdoh)
+
+---
+
+## 🚦 Build Status
+
+| Branch | Pipeline Status |
+| :--- | :--- |
+| `latest` | [![latest](https://gitlab.com/andrianey/adguardhomedotdoh/badges/latest/pipeline.svg)](https://gitlab.com/andrianey/adguardhomedotdoh/-/pipelines?ref=latest) |
+| `latest-wolfi` | [![latest-wolfi](https://gitlab.com/andrianey/adguardhomedotdoh/badges/latest-wolfi/pipeline.svg)](https://gitlab.com/andrianey/adguardhomedotdoh/-/pipelines?ref=latest-wolfi) |
+| `hardened` | [![hardened](https://gitlab.com/andrianey/adguardhomedotdoh/badges/hardened/pipeline.svg)](https://gitlab.com/andrianey/adguardhomedotdoh/-/pipelines?ref=hardened) |
+| `hardened-wolfi` | [![hardened-wolfi](https://gitlab.com/andrianey/adguardhomedotdoh/badges/hardened-wolfi/pipeline.svg)](https://gitlab.com/andrianey/adguardhomedotdoh/-/pipelines?ref=hardened-wolfi) |
+
+---
+
+## 📦 Component Versions by Image Tag
+
+> 🤖 **Auto-updated by CI** after each successful build. Shows the exact versions compiled/installed in each image.
+> `📦 pkg` = installed from OS package repository &nbsp;·&nbsp; `🔨 src` = compiled from source at build time
+
+<!-- VERSIONS_TABLE_START -->
+| Tag | AdGuardHome | Unbound | dnsproxy | How Built | Last Built (UTC) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `latest` | `—` | `—` | `—` | 📦 pkg | `—` |
+| `latest-wolfi` | `—` | `—` | `—` | 📦 pkg | `—` |
+| `hardened` | `—` | `—` | `—` | 🔨 src | `—` |
+| `hardened-wolfi` | `—` | `—` | `—` | 🔨 src | `—` |
+<!-- VERSIONS_TABLE_END -->
+
+> 💡 To verify the exact versions baked into any pulled image run:
+> ```bash
+> docker inspect andrianey/adguardhomedotdoh:<tag> \
+>   --format '{{ range $k,$v := .Config.Labels }}{{ $k }}={{ $v }}{{ "\n" }}{{ end }}' \
+>   | grep -E 'adguardhome|dnsproxy|unbound'
+> ```
+
+---
 
 ![Cloudflare-Test](https://raw.githubusercontent.com/andrianey/adguardhomedotdoh/7141b52e7e17ed0264a5a639a610ecd97dccc54e/cloudflare-dns.jpg)
 
