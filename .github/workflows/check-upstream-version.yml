@@ -1,0 +1,39 @@
+name: Monitor AdGuardHome and Trigger GitLab
+on:
+  schedule:
+    - cron: '0 * * * *'  # Check every hour
+  workflow_dispatch:      # Manual trigger for testing
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - type: "stable"
+            gitlab_branches: ["latest", "latest-wolfi"]
+          - type: "edge"
+            gitlab_branches: ["hardened", "hardened-wolfi"]
+    steps:
+      - name: Fetch Latest Version
+        id: versions
+        run: |
+          if [[ "${{ matrix.type }}" == "stable" ]]; then
+            # Get latest official stable release tag
+            VER=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
+          else
+            # Get the most recent tag from the development branch (Edge channel)
+            VER=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/tags | jq -r '.[0].name')
+          fi
+          echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Trigger GitLab Pipelines
+        run: |
+          for branch in ${{ join(matrix.gitlab_branches, ' ') }}; do
+            echo "Triggering GitLab branch: $branch with version ${{ steps.versions.outputs.version }}"
+            curl --request POST \
+              --form token=${{ secrets.GITLAB_TRIGGER_TOKEN }} \
+              --form ref=$branch \
+              --form "variables[UPSTREAM_VERSION]=${{ steps.versions.outputs.version }}" \
+              "https://gitlab.com/api/v4/projects/${{ secrets.GITLAB_PROJECT_ID }}/trigger/pipeline"
+          done
