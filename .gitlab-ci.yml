@@ -60,10 +60,12 @@ build_auto:
       AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
       DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
-      # Unbound: try embedded version file first, fallback to running binary
-      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ')
+      # Unbound: || true inside the pipe prevents pipefail killing the script
+      # when /tmp/unbound_version doesn't exist (latest/latest-wolfi/hardened)
+      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
       if [ -z "$UNBOUND_VER" ]; then
-        UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "n/a")
+        UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+        [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
       fi
       
       docker rmi inspect-image 2>/dev/null || true
@@ -154,17 +156,25 @@ update_readme_badge:
       python3 -c "import textwrap; f=open('update_readme.py'); c=f.read(); f.close(); open('update_readme.py','w').write(textwrap.dedent(c))"
       python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
 
-      git add README.md
-      if git diff-index --quiet HEAD -- README.md; then echo "No changes."; else
+      # Conflict-safe push: each retry re-fetches the freshest 'latest' and
+      # re-applies only this branch's row — no rebase, no merge conflicts.
+      for i in 1 2 3; do
+        git fetch origin latest
+        git checkout -B latest origin/latest
+        python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
+        git add README.md
+        if git diff-index --quiet HEAD -- README.md; then
+          echo "==> README already up to date (try $i), done."
+          break
+        fi
         git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
-        # Retry loop: handle concurrent badge updates from parallel branch builds
-        for i in 1 2 3; do
-          git pull --rebase origin latest && git push origin HEAD:latest && break
-          echo "==> Retry $i: pull --rebase before push..."
-          sleep 2
-        done
-        git push github HEAD:latest || echo "WARNING: GitHub push failed (non-blocking)"
-      fi
+        if git push origin HEAD:latest; then
+          git push github HEAD:latest || echo "WARNING: GitHub push failed (non-blocking)"
+          break
+        fi
+        echo "==> Push rejected (try $i/3), re-fetching and retrying in ${i}s..."
+        sleep $i
+      done
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
