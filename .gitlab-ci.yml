@@ -193,7 +193,23 @@ promote_live:
     - |
       if [ "$CI_PIPELINE_SOURCE" == "web" ]; then SOURCE_TAG="${TARGET_BRANCH}-auto"; DEST_TAG="${TARGET_BRANCH}"
       else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
+
+      echo "==> Promoting $IMAGE_NAME:${SOURCE_TAG} -> $IMAGE_NAME:${DEST_TAG}..."
       docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
+
+      echo "==> Deleting -auto tag $IMAGE_NAME:${SOURCE_TAG}..."
+      DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
+        | jq -r '.token // empty')
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" \
+        -H "Authorization: JWT ${DH_TOKEN}")
+      if [ "$HTTP_STATUS" = "204" ]; then
+        echo "==> Deleted tag ${SOURCE_TAG} (HTTP 204)."
+      else
+        echo "WARNING: Failed to delete tag ${SOURCE_TAG} (HTTP ${HTTP_STATUS}) — delete manually if needed."
+      fi
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
       when: manual
