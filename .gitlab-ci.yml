@@ -104,7 +104,7 @@ update_readme_badge:
   image: alpine:latest
   stage: badge
   before_script:
-    - apk add --no-cache git python3
+    - apk add --no-cache git python3 curl
   needs:
     - job: build_auto
       artifacts: true
@@ -120,8 +120,6 @@ update_readme_badge:
       git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
-      git fetch origin latest
-      git checkout latest
 
       cat << 'PYEOF' > update_readme.py
       import sys, re, textwrap
@@ -154,7 +152,6 @@ update_readme_badge:
       PYEOF
 
       python3 -c "import textwrap; f=open('update_readme.py'); c=f.read(); f.close(); open('update_readme.py','w').write(textwrap.dedent(c))"
-      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
 
       # Conflict-safe push: each retry re-fetches the freshest 'latest' and
       # re-applies only this branch's row — no rebase, no merge conflicts.
@@ -170,6 +167,21 @@ update_readme_badge:
         git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
         if git push origin HEAD:latest; then
           git push github HEAD:latest || echo "WARNING: GitHub push failed (non-blocking)"
+          # Sync README to Docker Hub full_description
+          DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+            -H "Content-Type: application/json" \
+            -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+          python3 -c "
+import json, sys
+with open('README.md') as f: body = json.dumps({'full_description': f.read()})
+with open('dh_payload.json','w') as f: f.write(body)
+"
+          curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" \
+            -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
+            -H "Authorization: JWT ${DH_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d @dh_payload.json || echo "WARNING: Docker Hub sync failed (non-blocking)"
           break
         fi
         echo "==> Push rejected (try $i/3), re-fetching and retrying in ${i}s..."
