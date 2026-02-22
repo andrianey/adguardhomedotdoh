@@ -172,11 +172,7 @@ update_readme_badge:
             -H "Content-Type: application/json" \
             -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
             | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
-          python3 -c "
-import json, sys
-with open('README.md') as f: body = json.dumps({'full_description': f.read()})
-with open('dh_payload.json','w') as f: f.write(body)
-"
+          python3 -c "import json; f=open('README.md'); b=json.dumps({'full_description':f.read()}); f.close(); o=open('dh_payload.json','w'); o.write(b); o.close()"
           curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" \
             -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
             -H "Authorization: JWT ${DH_TOKEN}" \
