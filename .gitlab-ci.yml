@@ -59,7 +59,12 @@ build_auto:
 
       AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
       DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
-      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "n/a")
+
+      # Unbound: try embedded version file first, fallback to running binary
+      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ')
+      if [ -z "$UNBOUND_VER" ]; then
+        UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "n/a")
+      fi
       
       docker rmi inspect-image 2>/dev/null || true
 
@@ -121,13 +126,12 @@ update_readme_badge:
       def run():
           branch, agh, ub, dp = sys.argv[1:]
           def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
-          def badge(l, v, c, logo=None):
-              url = f"https://img.shields.io/badge/{l}-{encode(v)}-{c}"
-              if logo: url += f"?logo={logo}&logoColor=white"
+          def badge(v, c):
+              url = f"https://img.shields.io/badge/-{encode(v)}-{c}"
               return f"![{v}]({url})"
-          agh_badge = badge("AGH", agh, "6ABF4B", "adguard")
-          ub_badge  = badge("Unbound", ub, "0077CC")
-          dp_badge  = badge("dnsproxy", dp, "6ABF4B", "adguard")
+          agh_badge = badge(agh, "6ABF4B")
+          ub_badge  = badge(ub, "0077CC")
+          dp_badge  = badge(dp, "6ABF4B")
           # Match the row and capture the static trailing columns (Base Image, Security Level, Description)
           pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
           with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
@@ -153,7 +157,12 @@ update_readme_badge:
       git add README.md
       if git diff-index --quiet HEAD -- README.md; then echo "No changes."; else
         git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
-        git push origin HEAD:latest
+        # Retry loop: handle concurrent badge updates from parallel branch builds
+        for i in 1 2 3; do
+          git pull --rebase origin latest && git push origin HEAD:latest && break
+          echo "==> Retry $i: pull --rebase before push..."
+          sleep 2
+        done
         git push github HEAD:latest || echo "WARNING: GitHub push failed (non-blocking)"
       fi
   rules:
