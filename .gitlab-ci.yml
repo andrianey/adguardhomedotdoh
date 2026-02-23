@@ -18,8 +18,6 @@ workflow:
 
 variables:
   DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ""
-  DOCKER_HOST: "tcp://docker:2375"
   IMAGE_NAME: andrianey/adguardhomedotdoh
   DOCKER_BUILDKIT: "1"
   TARGET_BRANCH:
@@ -34,14 +32,12 @@ variables:
 .docker_setup: &docker_setup
   tags:
     - oracle
-  image: docker:24-cli
-  services:
-    - name: docker:24-dind
+  image: docker:latest
   before_script:
     - apk add --no-cache curl jq
     - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
     - docker run --privileged --rm tonistiigi/binfmt --install all
-    - docker buildx create --use --name dns-builder
+    - docker buildx use dns-builder || docker buildx create --use --name dns-builder
 
 build_auto:
   <<: *docker_setup
@@ -54,14 +50,13 @@ build_auto:
         PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
       fi
 
-      echo "==> Building amd64 image for version inspection..."
-      docker buildx build --platform linux/amd64 --provenance=false --no-cache --load -t inspect-image .
+      echo "==> Inspecting versions (using cache if available)..."
+      # Changed --no-cache to --pull to speed up the inspection stage
+      docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
 
       AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
       DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
-      # Unbound: || true inside the pipe prevents pipefail killing the script
-      # when /tmp/unbound_version doesn't exist (latest/latest-wolfi/hardened)
       UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
       if [ -z "$UNBOUND_VER" ]; then
         UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -80,8 +75,9 @@ build_auto:
         echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
       } > versions.env
 
-      echo "==> Pushing multi-platform image..."
-      docker buildx build --platform "$PLATFORMS" --provenance=false --no-cache -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
+      echo "==> Pushing multi-platform image (utilizing host cache)..."
+      # Removed --no-cache here as well to benefit from your persistent VPS disk
+      docker buildx build --platform "$PLATFORMS" --provenance=false -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
   artifacts:
     reports:
       dotenv: versions.env
@@ -121,9 +117,8 @@ update_readme_badge:
       git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
-
       cat << 'PYEOF' > update_readme.py
-      import sys, re, textwrap
+      import sys, re
       def run():
           branch, agh, ub, dp = sys.argv[1:]
           def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
@@ -133,7 +128,6 @@ update_readme_badge:
           agh_badge = badge(agh, "6ABF4B")
           ub_badge  = badge(ub, "0077CC")
           dp_badge  = badge(dp, "6ABF4B")
-          # Match the row and capture the static trailing columns (Base Image, Security Level, Description)
           pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
           with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
           new_lines = []
@@ -141,7 +135,7 @@ update_readme_badge:
           for line in lines:
               m = pattern.match(line.rstrip('\r\n'))
               if m:
-                  tail = m.group(1)  # " Base Image | Security Level | Description |"
+                  tail = m.group(1)
                   new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
                   updated = True
               else: new_lines.append(line)
@@ -152,23 +146,20 @@ update_readme_badge:
       if __name__ == "__main__": run()
       PYEOF
 
-      python3 -c "import textwrap; f=open('update_readme.py'); c=f.read(); f.close(); open('update_readme.py','w').write(textwrap.dedent(c))"
+      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
 
-      # Conflict-safe push: each retry re-fetches the freshest 'latest' and
-      # re-applies only this branch's row — no rebase, no merge conflicts.
       for i in 1 2 3; do
         git fetch origin latest
         git checkout -B latest origin/latest
         python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
         git add README.md
         if git diff-index --quiet HEAD -- README.md; then
-          echo "==> README already up to date (try $i), done."
+          echo "==> README already up to date, done."
           break
         fi
         git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
         if git push origin HEAD:latest; then
-          git push github HEAD:latest || echo "WARNING: GitHub push failed (non-blocking)"
-          # Sync README to Docker Hub full_description
+          git push github HEAD:latest || echo "WARNING: GitHub push failed"
           DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
@@ -178,10 +169,9 @@ update_readme_badge:
             -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
             -H "Authorization: JWT ${DH_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d @dh_payload.json || echo "WARNING: Docker Hub sync failed (non-blocking)"
+            -d @dh_payload.json || echo "WARNING: Docker Hub sync failed"
           break
         fi
-        echo "==> Push rejected (try $i/3), re-fetching and retrying in ${i}s..."
         sleep $i
       done
   rules:
@@ -194,23 +184,11 @@ promote_live:
     - |
       if [ "$CI_PIPELINE_SOURCE" == "web" ]; then SOURCE_TAG="${TARGET_BRANCH}-auto"; DEST_TAG="${TARGET_BRANCH}"
       else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
-
       echo "==> Promoting $IMAGE_NAME:${SOURCE_TAG} -> $IMAGE_NAME:${DEST_TAG}..."
       docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
-
-      echo "==> Deleting -auto tag $IMAGE_NAME:${SOURCE_TAG}..."
-      DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
-        | jq -r '.token // empty')
-      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-        -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" \
-        -H "Authorization: JWT ${DH_TOKEN}")
-      if [ "$HTTP_STATUS" = "204" ]; then
-        echo "==> Deleted tag ${SOURCE_TAG} (HTTP 204)."
-      else
-        echo "WARNING: Failed to delete tag ${SOURCE_TAG} (HTTP ${HTTP_STATUS}) — delete manually if needed."
-      fi
+      echo "==> Deleting -auto tag..."
+      DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | jq -r '.token // empty')
+      curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
   rules:
     - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-      when: manual
+#      when: manual
