@@ -117,6 +117,7 @@ update_readme_badge:
       git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
+      # Generate the python script file first
       cat << 'PYEOF' > update_readme.py
       import sys, re
       def run():
@@ -146,20 +147,25 @@ update_readme_badge:
       if __name__ == "__main__": run()
       PYEOF
 
-      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
-
+      # REFRESH AND CHECKOUT FIRST, THEN MODIFY
       for i in 1 2 3; do
         git fetch origin latest
         git checkout -B latest origin/latest
+        
+        # Now that we are on the clean branch, apply the changes
         python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
+        
         git add README.md
         if git diff-index --quiet HEAD -- README.md; then
-          echo "==> README already up to date, done."
+          echo "==> README already up to date (try $i), done."
           break
         fi
+        
         git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
         if git push origin HEAD:latest; then
           git push github HEAD:latest || echo "WARNING: GitHub push failed"
+          
+          # Docker Hub Sync Logic
           DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
             -H "Content-Type: application/json" \
             -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
@@ -172,6 +178,7 @@ update_readme_badge:
             -d @dh_payload.json || echo "WARNING: Docker Hub sync failed"
           break
         fi
+        echo "==> Push rejected, retrying..."
         sleep $i
       done
   rules:
