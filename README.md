@@ -1,6 +1,6 @@
 # AdGuard Home with DoH/DoT Support
 
-This project provides a custom Docker image for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) pre-configured with **Unbound** (as a recursive DNS resolver), **Stubby** (for DNS-over-TLS), and **Cloudflared** (for DNS-over-HTTPS).
+This project provides a custom Docker image for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) pre-configured with **Unbound** (as a recursive DNS resolver with DNSSEC), **dnsproxy** (for DNS-over-TLS and DNS-over-HTTPS), and **Valkey** (Redis-compatible cache for Unbound).
 
 [GitHub](https://github.com/andrianey/adguardhomedotdoh)
 
@@ -89,9 +89,9 @@ The image comes pre-configured with the following services running internally:
 
 | Component | Internal Port | Description |
 | :--- | :--- | :--- |
-| **Unbound** | `127.0.0.1:53` | Recursive resolver with DNSSEC validation. |
-| **Stubby** | `127.0.0.1:8053` | DNS-over-TLS resolver. |
-| **Cloudflared** | `127.0.0.1:5053` | DNS-over-HTTPS tunnel. |
+| **Unbound** | `127.0.0.1:5335` | Recursive resolver with DNSSEC validation and Valkey caching. |
+| **dnsproxy** | `127.0.0.1:8053` | DNS-over-TLS and DNS-over-HTTPS upstream resolver. |
+| **Valkey** | Unix Socket | Redis-compatible cache backend for Unbound. |
 
 ## Configuration
 
@@ -100,19 +100,20 @@ When configuring AdGuard Home via the web UI (**Settings -> DNS settings**), use
 
 1.  **Upstream DNS servers** & **Bootstrap DNS servers**:
     ```
-    # Unbound (Recursive + DNSSEC)
-    127.0.0.1:53
-    
-    # Cloudflared (DoH)
-    127.0.0.1:5053
-    
-    # Stubby (DoT)
-    127.0.0.1:8053
+    # Unbound (Recursive + DNSSEC + Valkey Cache)
+    127.0.0.1:5335
     ```
 
 2.  **Settings**:
-    *   Check **"Parallel requests"** (Query all upstreams simultaneously).
-    *   **Cache size**: `0` (Let Unbound/Stubby handle caching, or set low if preferred).
+    *   **Cache size**: `0` (Let Unbound handle caching with Valkey backend).
+    *   Unbound forwards to dnsproxy (127.0.0.1:8053) which handles DoH/DoT to upstream providers.
+
+3.  **Customizing dnsproxy Upstreams**:
+    Set the `DNSPROXY_UPSTREAM` environment variable to use different providers:
+    ```yaml
+    environment:
+      - DNSPROXY_UPSTREAM=tls://9.9.9.9 tls://149.112.112.112  # Quad9
+    ```
 
 ---
 

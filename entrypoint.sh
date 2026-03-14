@@ -22,7 +22,11 @@ chown adguard:adguard /var/run/redis
 # Run valkey as adguard user, listening on unix socket only
 # Alpine's su-exec takes 'user:group' or just 'user'
 su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
-sleep 1
+sleep 2
+if [ ! -S /var/run/redis/redis.sock ]; then
+    echo "ERROR: Valkey failed to create socket"
+    exit 1
+fi
 
 # 2. Initialize Unbound Anchor (Required for DNSSEC)
 if [ ! -f /var/lib/unbound/root.key ]; then
@@ -54,13 +58,21 @@ su-exec adguard /usr/local/bin/dnsproxy \
     $UPSTREAM_ARGS \
     $DNSPROXY_FLAGS &
 DNSPROXY_PID=$!
-sleep 1
+sleep 2
+if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
+    echo "ERROR: dnsproxy failed to start"
+    exit 1
+fi
 
 # 4. Start Unbound DNS Resolver
 echo "[4/7] Starting Unbound DNS resolver..."
 su-exec adguard /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
-sleep 1
+sleep 2
+if ! kill -0 $UNBOUND_PID 2>/dev/null; then
+    echo "ERROR: Unbound failed to start"
+    exit 1
+fi
 
 # 5. Show status
 echo "[5/7] Services started:"
