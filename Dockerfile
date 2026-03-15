@@ -82,7 +82,8 @@ RUN set -eux; \
     tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
     # Find binary regardless of directory structure
     find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
-    chmod +x /usr/local/bin/dnsproxy
+    chmod +x /usr/local/bin/dnsproxy && \
+    /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
 
 # Download root.hints for Unbound
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
@@ -133,7 +134,10 @@ FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
 LABEL maintainer="andrianey"
 LABEL name="adguardhome-doh-dot-wolfi"
-LABEL description="AdGuard Home with DoT/DoH support using dnsproxy, Unbound on Wolfi"
+LABEL description="AdGuard Home with DoT/DoH support using dnsproxy, Unbound, Valkey on Wolfi"
+LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest-Wolfi)"
+LABEL org.opencontainers.image.description="Wolfi-based AdGuard Home with Unbound, dnsproxy, and Valkey"
 
 # Install runtime dependencies from Wolfi repos with retry
 RUN apk update && apk add --no-cache \
@@ -165,6 +169,7 @@ COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardH
 
 # Copy dnsproxy from helpers builder
 COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
 
 # Copy root.hints for Unbound
 COPY --from=builder_helpers /tmp/root.hints /var/lib/unbound/root.hints
@@ -197,7 +202,8 @@ RUN chmod 700 /opt/adguardhome/work \
     && chmod 755 /usr/local/bin/dnsproxy \
     && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
     && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
-    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy && \
+    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
 # Expose ports
 EXPOSE 53/tcp 53/udp \
@@ -212,6 +218,10 @@ EXPOSE 53/tcp 53/udp \
 
 # Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
 # Run as root explicitly
 USER root

@@ -27,6 +27,11 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
+if [ ! -S /var/run/redis/redis.sock ]; then
+    echo "ERROR: Valkey failed to create socket"
+    exit 1
+fi
+
 # 2. Initialize Unbound Anchor (Required for DNSSEC)
 if [ ! -f /var/lib/unbound/root.key ]; then
     echo "       Initializing DNSSEC root key..."
@@ -38,7 +43,11 @@ echo "[2/6] Starting Unbound DNS resolver..."
 # Run unbound in background
 /usr/sbin/unbound -d -v &
 UNBOUND_PID=$!
-sleep 1
+sleep 2
+if ! kill -0 $UNBOUND_PID 2>/dev/null; then
+    echo "ERROR: Unbound failed to start"
+    exit 1
+fi
 
 # 3. Start dnsproxy (DoH/DoT upstream)
 echo "[3/6] Starting dnsproxy (DoH/DoT upstream)..."
@@ -64,7 +73,11 @@ echo "       Configured Upstreams: $DNSPROXY_UPSTREAM"
     $UPSTREAM_ARGS \
     $DNSPROXY_FLAGS &
 DNSPROXY_PID=$!
-sleep 1
+sleep 2
+if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
+    echo "ERROR: dnsproxy failed to start"
+    exit 1
+fi
 
 # 5. Show service status
 echo "[5/6] Services started:"
