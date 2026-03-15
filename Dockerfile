@@ -142,10 +142,6 @@ EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/t
 # Volumes
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
-
 # Run as root initially to allow entrypoint to drop privileges
 USER root
 
