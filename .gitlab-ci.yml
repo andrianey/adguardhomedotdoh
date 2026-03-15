@@ -1,20 +1,20 @@
 stages:
-  - build
-  - manifest
-  - badge
-  - promote
+- build
+- manifest
+- badge
+- promote
 
 workflow:
   rules:
-    - if: '$CI_COMMIT_MESSAGE =~ /\[skip ci\]/i'
-      when: never
-    - changes:
-        - Dockerfile
-        - entrypoint.sh
-        - unbound/**/*
-        - crontab/**/*
-        - .gitlab-ci.yml
-    - when: never
+  - if: '$CI_COMMIT_MESSAGE =~ /\[skip ci\]/i'
+    when: never
+  - changes:
+    - Dockerfile
+    - entrypoint.sh
+    - unbound/**/*
+    - crontab/**/*
+    - .gitlab-ci.yml
+  - when: never
 
 variables:
   DOCKER_DRIVER: overlay2
@@ -23,179 +23,179 @@ variables:
   TARGET_BRANCH:
     value: "latest"
     options:
-      - "latest"
-      - "latest-wolfi"
-      - "hardened"
-      - "hardened-wolfi"
+    - "latest"
+    - "latest-wolfi"
+    - "hardened"
+    - "hardened-wolfi"
     description: "Branch to promote (latest, latest-wolfi, hardened, hardened-wolfi)"
 
 .docker_setup: &docker_setup
   tags:
-    - oracle
+  - oracle
   image: docker:latest
   before_script:
-    - apk add --no-cache curl jq
-    - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
-    - docker run --privileged --rm tonistiigi/binfmt --install all
-    - docker buildx use dns-builder || docker buildx create --use --name dns-builder
+  - apk add --no-cache curl jq
+  - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+  - docker run --privileged --rm tonistiigi/binfmt --install all
+  - docker buildx use dns-builder || docker buildx create --use --name dns-builder
 
 build_auto:
   <<: *docker_setup
   stage: build
   script:
-    - |
-      if [[ "$CI_COMMIT_BRANCH" == *"wolfi"* ]]; then
-        PLATFORMS="linux/amd64,linux/arm64"
-      else
-        PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
-      fi
+  - |
+    if [[ "$CI_COMMIT_BRANCH" == *"wolfi"* ]]; then
+      PLATFORMS="linux/amd64,linux/arm64"
+    else
+      PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
+    fi
 
-      echo "==> Inspecting versions (using cache if available)..."
-      # Changed --no-cache to --pull to speed up the inspection stage
-      docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
+    echo "==> Inspecting versions (using cache if available)..."
+    # Changed --no-cache to --pull to speed up the inspection stage
+    docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
 
-      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
-      DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
+    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
+    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
-      UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
-      if [ -z "$UNBOUND_VER" ]; then
-        UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-        [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
-      fi
-      
-      docker rmi inspect-image 2>/dev/null || true
+    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
+    if [ -z "$UNBOUND_VER" ]; then
+      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+      [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
+    fi
 
-      AGH_VAR_CLEAN=$(echo "$AGH_VER" | tr -d '\n\r')
-      UNBOUND_VAR_CLEAN=$(echo "$UNBOUND_VER" | tr -d '\n\r')
-      DNSPROXY_VAR_CLEAN=$(echo "$DNSPROXY_VER" | tr -d '\n\r')
+    docker rmi inspect-image 2>/dev/null || true
 
-      {
-        echo "AGH_VER=$AGH_VAR_CLEAN"
-        echo "UNBOUND_VER=$UNBOUND_VAR_CLEAN"
-        echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
-      } > versions.env
+    AGH_VAR_CLEAN=$(echo "$AGH_VER" | tr -d '\n\r')
+    UNBOUND_VAR_CLEAN=$(echo "$UNBOUND_VER" | tr -d '\n\r')
+    DNSPROXY_VAR_CLEAN=$(echo "$DNSPROXY_VER" | tr -d '\n\r')
 
-      echo "==> Pushing multi-platform image (utilizing host cache)..."
-      # Removed --no-cache here as well to benefit from your persistent VPS disk
-      docker buildx build --platform "$PLATFORMS" --provenance=false -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
+    {
+      echo "AGH_VER=$AGH_VAR_CLEAN"
+      echo "UNBOUND_VER=$UNBOUND_VAR_CLEAN"
+      echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
+    } > versions.env
+
+    echo "==> Pushing multi-platform image (utilizing host cache)..."
+    # Removed --no-cache here as well to benefit from your persistent VPS disk
+    docker buildx build --platform "$PLATFORMS" --provenance=false -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
   artifacts:
     reports:
       dotenv: versions.env
     expire_in: 1 hour
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
-    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+  - if: '$CI_PIPELINE_SOURCE == "trigger"'
+  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
 create_manifest:
   <<: *docker_setup
   stage: manifest
   script:
-    - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
+  - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
   rules:
-    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-  needs: ["build_auto"]
+  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+  needs: [ "build_auto" ]
 
 update_readme_badge:
   tags:
-    - oracle
+  - oracle
   image: alpine:latest
   stage: badge
   before_script:
-    - apk add --no-cache git python3 curl
+  - apk add --no-cache git python3 curl
   needs:
-    - job: build_auto
-      artifacts: true
+  - job: build_auto
+    artifacts: true
   script:
-    - |
-      if [[ "$CI_COMMIT_BRANCH" == *"hardened-wolfi"* ]]; then TARGET_ROW="hardened-wolfi"
-      elif [[ "$CI_COMMIT_BRANCH" == *"latest-wolfi"* ]]; then TARGET_ROW="latest-wolfi"
-      elif [[ "$CI_COMMIT_BRANCH" == *"hardened"* ]]; then TARGET_ROW="hardened"
-      else TARGET_ROW="latest"; fi
+  - |
+    if [[ "$CI_COMMIT_BRANCH" == *"hardened-wolfi"* ]]; then TARGET_ROW="hardened-wolfi"
+    elif [[ "$CI_COMMIT_BRANCH" == *"latest-wolfi"* ]]; then TARGET_ROW="latest-wolfi"
+    elif [[ "$CI_COMMIT_BRANCH" == *"hardened"* ]]; then TARGET_ROW="hardened"
+    else TARGET_ROW="latest"; fi
 
-      git config user.email "ci-bot@andrianey.my.id"
-      git config user.name "CI Bot"
-      git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
-      git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
+    git config user.email "ci-bot@andrianey.my.id"
+    git config user.name "CI Bot"
+    git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
-      # Generate the python script file first
-      cat << 'PYEOF' > update_readme.py
-      import sys, re
-      def run():
-          branch, agh, ub, dp = sys.argv[1:]
-          def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
-          def badge(v, c):
-              url = f"https://img.shields.io/badge/-{encode(v)}-{c}"
-              return f"![{v}]({url})"
-          agh_badge = badge(agh, "6ABF4B")
-          ub_badge  = badge(ub, "0077CC")
-          dp_badge  = badge(dp, "6ABF4B")
-          pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
-          with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
-          new_lines = []
-          updated = False
-          for line in lines:
-              m = pattern.match(line.rstrip('\r\n'))
-              if m:
-                  tail = m.group(1)
-                  new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
-                  updated = True
-              else: new_lines.append(line)
-          if updated:
-              with open('README.md', 'w', encoding='utf-8') as f: f.writelines(new_lines)
-              print(f"SUCCESS: Updated row '{branch}'")
-          else: sys.exit(1)
-      if __name__ == "__main__": run()
-      PYEOF
+    # Generate the python script file first
+    cat << 'PYEOF' > update_readme.py
+    import sys, re
+    def run():
+        branch, agh, ub, dp = sys.argv[1:]
+        def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
+        def badge(v, c):
+            url = f"https://img.shields.io/badge/-{encode(v)}-{c}"
+            return f"![{v}]({url})"
+        agh_badge = badge(agh, "6ABF4B")
+        ub_badge  = badge(ub, "0077CC")
+        dp_badge  = badge(dp, "6ABF4B")
+        pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
+        with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
+        new_lines = []
+        updated = False
+        for line in lines:
+            m = pattern.match(line.rstrip('\r\n'))
+            if m:
+                tail = m.group(1)
+                new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
+                updated = True
+            else: new_lines.append(line)
+        if updated:
+            with open('README.md', 'w', encoding='utf-8') as f: f.writelines(new_lines)
+            print(f"SUCCESS: Updated row '{branch}'")
+        else: sys.exit(1)
+    if __name__ == "__main__": run()
+    PYEOF
 
-      # REFRESH AND CHECKOUT FIRST, THEN MODIFY
-      for i in 1 2 3; do
-        git fetch origin latest
-        git checkout -B latest origin/latest
+    # REFRESH AND CHECKOUT FIRST, THEN MODIFY
+    for i in 1 2 3; do
+      git fetch origin latest
+      git checkout -B latest origin/latest
+      
+      # Now that we are on the clean branch, apply the changes
+      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
+      
+      git add README.md
+      if git diff-index --quiet HEAD -- README.md; then
+        echo "==> README already up to date (try $i), done."
+        break
+      fi
+      
+      git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
+      if git push origin HEAD:latest; then
+        git push github HEAD:latest || echo "WARNING: GitHub push failed"
         
-        # Now that we are on the clean branch, apply the changes
-        python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
-        
-        git add README.md
-        if git diff-index --quiet HEAD -- README.md; then
-          echo "==> README already up to date (try $i), done."
-          break
-        fi
-        
-        git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
-        if git push origin HEAD:latest; then
-          git push github HEAD:latest || echo "WARNING: GitHub push failed"
-          
-          # Docker Hub Sync Logic
-          DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
-            -H "Content-Type: application/json" \
-            -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
-          python3 -c "import json; f=open('README.md'); b=json.dumps({'full_description':f.read()}); f.close(); o=open('dh_payload.json','w'); o.write(b); o.close()"
-          curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" \
-            -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
-            -H "Authorization: JWT ${DH_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d @dh_payload.json || echo "WARNING: Docker Hub sync failed"
-          break
-        fi
-        echo "==> Push rejected, retrying..."
-        sleep $i
-      done
+        # Docker Hub Sync Logic
+        DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
+          -H "Content-Type: application/json" \
+          -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
+          | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+        python3 -c "import json; f=open('README.md'); b=json.dumps({'full_description':f.read()}); f.close(); o=open('dh_payload.json','w'); o.write(b); o.close()"
+        curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" \
+          -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
+          -H "Authorization: JWT ${DH_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d @dh_payload.json || echo "WARNING: Docker Hub sync failed"
+        break
+      fi
+      echo "==> Push rejected, retrying..."
+      sleep $i
+    done
   rules:
-    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
 promote_live:
   <<: *docker_setup
   stage: promote
   script:
-    - |
-      if [ "$CI_PIPELINE_SOURCE" == "web" ]; then SOURCE_TAG="${TARGET_BRANCH}-auto"; DEST_TAG="${TARGET_BRANCH}"
-      else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
-      echo "==> Promoting $IMAGE_NAME:${SOURCE_TAG} -> $IMAGE_NAME:${DEST_TAG}..."
-      docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
-      echo "==> Deleting -auto tag..."
-      DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | jq -r '.token // empty')
-      curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
+  - |
+    if [ "$CI_PIPELINE_SOURCE" == "web" ]; then SOURCE_TAG="${TARGET_BRANCH}-auto"; DEST_TAG="${TARGET_BRANCH}"
+    else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
+    echo "==> Promoting $IMAGE_NAME:${SOURCE_TAG} -> $IMAGE_NAME:${DEST_TAG}..."
+    docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
+    echo "==> Deleting -auto tag..."
+    DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | jq -r '.token // empty')
+    curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
   rules:
-    - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-#      when: manual
+  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
+    when: manual
