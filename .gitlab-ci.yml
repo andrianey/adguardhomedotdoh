@@ -200,4 +200,5 @@ promote_live:
     curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
   rules:
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-    when: manual
+
+#    when: manual
