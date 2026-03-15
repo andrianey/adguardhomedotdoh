@@ -13,7 +13,7 @@ FROM adguard/adguardhome:edge AS adguard_source
 # -----------------------------------------------------------------------------
 # Stage 2: Build dnsproxy from source (Fixes CVEs in deps and Go stdlib)
 # -----------------------------------------------------------------------------
-FROM golang:alpine AS builder_dnsproxy
+FROM golang:1.26-alpine AS builder_dnsproxy
 
 RUN apk add --no-cache git
 
@@ -21,15 +21,19 @@ WORKDIR /src/dnsproxy
 # Clone latest source
 RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
 # Force update quic-go to fix CVE-2025-64702
-RUN go get github.com/quic-go/quic-go@latest && go mod tidy
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go get github.com/quic-go/quic-go@latest && go mod tidy
 # Extract version info from git and write to a file for label injection
-RUN VERSION=$(git describe --tags --always --dirty) && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    VERSION=$(git describe --tags --always --dirty) && \
     REVISION=$(git rev-parse --short HEAD) && \
     BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
     COMMIT_TIME=$(git log -1 --format=%ct) && \
     echo "${VERSION}" > /tmp/dnsproxy_version && \
     echo "${REVISION}" > /tmp/dnsproxy_revision && \
-    go build -v -ldflags "-s -w \
+    go build -trimpath -v -ldflags "-s -w \
     -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.branch=${BRANCH} \
@@ -96,8 +100,11 @@ ARG VCS_REF
 ARG BRANCH
 
 LABEL maintainer="andrianey"
-LABEL name="adguardhome-doh-dot-wolfi"
-LABEL description="AdGuard Home with DoT/DoH support using dnsproxy and Unbound on Wolfi"
+LABEL name="adguardhome-doh-dot-wolfi-hardened"
+LABEL description="Hardened AdGuard Home with DoT/DoH support using dnsproxy, Unbound, Valkey on Wolfi"
+LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Hardened-Wolfi)"
+LABEL org.opencontainers.image.description="Maximum security: Wolfi base + non-root + source builds"
 
 # OCI standard labels
 LABEL org.opencontainers.image.title="AdGuardHome DoH/DoT"
@@ -186,7 +193,8 @@ RUN chown -R adguard:adguard /opt/adguardhome \
     && chmod 755 /usr/local/bin/dnsproxy \
     && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
     && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
-    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy && \
+    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
 # Expose ports
 # DNS (TCP/UDP)
@@ -202,6 +210,10 @@ EXPOSE 53/tcp 53/udp \
 
 # Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
 # Run as root initially to allow entrypoint to drop privileges
 USER root
