@@ -219,10 +219,6 @@ EXPOSE 53/tcp 53/udp \
 # Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
-
 # Run as root explicitly
 USER root
 
