@@ -42,7 +42,8 @@ RUN set -eux; \
     tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
     # Find binary regardless of directory structure
     find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
-    chmod +x /usr/local/bin/dnsproxy
+    chmod +x /usr/local/bin/dnsproxy && \
+    /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
 
 
 # ============================================
@@ -84,7 +85,10 @@ FROM alpine:3.23
 
 # Set labels for the image
 LABEL maintainer="andrianey"
-LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound)"
+LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
+LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
+LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
 
 # 1. Install dependencies
 RUN apk update && apk add --no-cache \
@@ -102,6 +106,7 @@ COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuard
 
 # 3. Copy dnsproxy from helpers
 COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
 
 # 4. Setup AdGuard Home directories and permissions
 RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
@@ -118,7 +123,8 @@ COPY --from=builder_unbound /usr/lib/libhiredis.so* /usr/lib/
 COPY --from=builder_unbound /usr/lib/libevent* /usr/lib/
 
 RUN mkdir -p /var/lib/unbound/ && \
-    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root
+    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root && \
+    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 
@@ -136,5 +142,9 @@ EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/t
 
 # Volumes
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
 
 ENTRYPOINT ["/opt/entrypoint.sh"]

@@ -26,6 +26,11 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
+if [ ! -S /var/run/redis/redis.sock ]; then
+    echo "ERROR: Valkey failed to create socket"
+    exit 1
+fi
+
 # 3. Run crontab service
 echo "[3/7] Starting cron service..."
 /usr/sbin/crond -L /var/log/cron.log
@@ -43,6 +48,10 @@ echo "       Starting Unbound with cachedb (Valkey backend)..."
 UNBOUND_PID=$!
 # Wait a bit longer for Unbound to initialize and connect to Valkey
 sleep 2
+if ! kill -0 $UNBOUND_PID 2>/dev/null; then
+    echo "ERROR: Unbound failed to start"
+    exit 1
+fi
 echo "       Unbound started (check logs above for Valkey connection)"
 
 # 5. Run dnsproxy (DoH/DoT upstream)
@@ -69,7 +78,11 @@ echo "       Configured Upstreams: $DNSPROXY_UPSTREAM"
     $UPSTREAM_ARGS \
     $DNSPROXY_FLAGS &
 DNSPROXY_PID=$!
-sleep 1
+sleep 2
+if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
+    echo "ERROR: dnsproxy failed to start"
+    exit 1
+fi
 
 # Show service status
 echo "[6/7] Services started:"
