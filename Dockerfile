@@ -18,8 +18,10 @@ FROM golang:1.26-alpine AS builder_dnsproxy
 RUN apk add --no-cache git
 
 WORKDIR /src/dnsproxy
-# Clone latest source
-RUN git clone https://github.com/AdguardTeam/dnsproxy.git .
+# Clone latest source and fetch all tags
+RUN git clone https://github.com/AdguardTeam/dnsproxy.git . && \
+    git fetch --tags && \
+    git pull origin master
 # Force update quic-go to fix CVE-2025-64702
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
