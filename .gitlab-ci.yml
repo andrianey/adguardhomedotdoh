@@ -75,13 +75,11 @@ build_auto:
       echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
     } > versions.env
 
-    echo "==> Pushing multi-platform image (utilizing host cache)..."
-    # Use registry cache for faster builds
+    echo "==> Pushing multi-platform image..."
+    # No cache parameters - prevents any cache tags on Docker Hub
     docker buildx build \
       --platform "$PLATFORMS" \
       --provenance=false \
-      --cache-from type=registry,ref=$IMAGE_NAME:${CI_COMMIT_BRANCH}-cache \
-      --cache-to type=registry,ref=$IMAGE_NAME:${CI_COMMIT_BRANCH}-cache,mode=max \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
   artifacts:
