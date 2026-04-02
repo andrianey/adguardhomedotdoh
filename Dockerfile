@@ -6,7 +6,7 @@ FROM adguard/adguardhome:edge AS adguard-source
 # ============================================
 # Stage 2: Build dnsproxy from source (Fixes CVEs)
 # ============================================
-FROM golang:1.26-alpine AS builder_dnsproxy
+FROM golang:1.26-alpine3.23 AS builder_dnsproxy
 
 RUN apk add --no-cache git
 
@@ -40,7 +40,7 @@ RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:edge AS builder_unbound
+FROM alpine:3.23 AS builder_unbound
 
 RUN apk add --no-cache \
     build-base \
@@ -71,9 +71,9 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && make install DESTDIR=/tmp/unbound/install
 
 # ============================================
-# Stage 4: Final image with Alpine Edge
+# Stage 4: Final image with Alpine 3.23
 # ============================================
-FROM alpine:edge
+FROM alpine:3.23
 
 # Set labels for the image
 LABEL maintainer="andrianey"
@@ -83,7 +83,7 @@ LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Hardened)"
 LABEL org.opencontainers.image.description="Hardened non-root AdGuard Home with Unbound, dnsproxy, and Valkey"
 
 # 1. Install dependencies
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     libevent \
     hiredis \
     valkey \
@@ -93,7 +93,6 @@ RUN apk update && apk add --no-cache \
     libcap \
     su-exec \
     tini \
-    bash \
     && rm -rf /var/cache/apk/*
 
 # 2. Copy AdGuard Home binary from the official image
