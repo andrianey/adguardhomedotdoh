@@ -6,7 +6,7 @@ FROM adguard/adguardhome:edge AS adguard-source
 # ============================================
 # Stage 2: Build dnsproxy from source (Fixes CVEs)
 # ============================================
-FROM golang:1.26-alpine3.21 AS builder_dnsproxy
+FROM golang:alpine3.21 AS builder_dnsproxy
 
 RUN apk add --no-cache git
 
