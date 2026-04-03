@@ -73,7 +73,7 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 # ============================================
 # Stage 4: Final image with Alpine 3.23
 # ============================================
-FROM alpine:3.23
+FROM alpine:3.21
 
 # Set labels for the image
 LABEL maintainer="andrianey"
