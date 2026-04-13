@@ -20,6 +20,7 @@ variables:
   DOCKER_DRIVER: overlay2
   IMAGE_NAME: andrianey/adguardhomedotdoh
   DOCKER_BUILDKIT: "1"
+  BUILDX_CACHE_DIR: .buildx-cache
   TARGET_BRANCH:
     value: "latest"
     options:
@@ -38,10 +39,18 @@ variables:
   - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
   - docker run --privileged --rm tonistiigi/binfmt --install all
   - docker buildx use dns-builder || docker buildx create --use --name dns-builder
+  after_script:
+  - docker buildx prune --builder dns-builder --all --force || true
+  - docker buildx rm dns-builder || true
 
 build_auto:
   <<: *docker_setup
   stage: build
+  cache:
+    key: "buildx-$CI_COMMIT_REF_SLUG"
+    paths:
+    - .buildx-cache
+    policy: pull-push
   script:
   - |
     if [[ "$CI_COMMIT_BRANCH" == *"wolfi"* ]]; then
@@ -75,9 +84,15 @@ build_auto:
       echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
     } > versions.env
 
-    echo "==> Pushing multi-platform image (utilizing host cache)..."
-    # Removed --no-cache here as well to benefit from your persistent VPS disk
-    docker buildx build --platform "$PLATFORMS" --provenance=false -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --push .
+    echo "==> Pushing multi-platform image..."
+    mkdir -p "$BUILDX_CACHE_DIR"
+    docker buildx build \
+      --platform "$PLATFORMS" \
+      --provenance=false \
+      --cache-from type=local,src=$BUILDX_CACHE_DIR \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
+      -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
+      --push .
   artifacts:
     reports:
       dotenv: versions.env
