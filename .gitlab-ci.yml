@@ -38,10 +38,11 @@ variables:
   - apk add --no-cache curl jq
   - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
   - docker run --privileged --rm tonistiigi/binfmt --install all
-  - docker buildx use dns-builder || docker buildx create --use --name dns-builder
+  - export BUILDER_NAME="dns-builder-${CI_JOB_ID}"
+  - docker buildx use "$BUILDER_NAME" || docker buildx create --use --name "$BUILDER_NAME"
   after_script:
-  - docker buildx prune --builder dns-builder --all --force || true
-  - docker buildx rm dns-builder || true
+  - docker buildx prune --builder "$BUILDER_NAME" --all --force || true
+  - docker buildx rm "$BUILDER_NAME" || true
 
 build_auto:
   <<: *docker_setup
