@@ -8,6 +8,8 @@ workflow:
   rules:
   - if: '$CI_COMMIT_MESSAGE =~ /\[skip ci\]/i'
     when: never
+  - if: '$CI_PIPELINE_SOURCE == "trigger" && $UPSTREAM_SYNC == "true"'
+    when: always
   - changes:
     - Dockerfile
     - entrypoint.sh
