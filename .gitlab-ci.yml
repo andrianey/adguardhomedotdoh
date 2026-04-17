@@ -53,6 +53,7 @@ build_auto:
     key: "buildx-$CI_COMMIT_REF_SLUG"
     paths:
     - .buildx-cache
+    expire_in: 14 days
     policy: pull-push
   script:
   - |
@@ -93,7 +94,7 @@ build_auto:
       --platform "$PLATFORMS" \
       --provenance=false \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
   artifacts:
