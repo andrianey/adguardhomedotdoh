@@ -8,6 +8,9 @@ This project provides a custom Docker image for [AdGuard Home](https://github.co
 
 [GitHub](https://github.com/andrianey/adguardhomedotdoh) · [Docker Hub](https://hub.docker.com/r/andrianey/adguardhomedotdoh)
 
+[![Docker Pulls (realtime)](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhub.docker.com%2Fv2%2Frepositories%2Fandrianey%2Fadguardhomedotdoh&query=%24.pull_count&label=docker%20pulls&logo=docker&logoColor=white&color=0077CC&cacheSeconds=300)](https://hub.docker.com/r/andrianey/adguardhomedotdoh)
+[![Image Size](https://img.shields.io/docker/image-size/andrianey/adguardhomedotdoh/latest?logo=docker&logoColor=white&color=0077CC)](https://hub.docker.com/r/andrianey/adguardhomedotdoh/tags)
+
 ![dns-test](https://raw.githubusercontent.com/andrianey/adguardhomedotdoh/refs/heads/latest/dns-test.jpg)
 
 ---
