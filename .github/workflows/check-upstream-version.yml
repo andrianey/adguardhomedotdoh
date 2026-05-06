@@ -36,7 +36,7 @@ jobs:
 
           # 2. Extract CLEAN version from README.md
           BRANCH_NAME="${{ matrix.branches[0] }}"
-          RAW_ROW=$(grep "| \`$BRANCH_NAME\` |" README.md)
+          RAW_ROW=$(grep "^| \`$BRANCH_NAME\` " README.md)
           
           # Extracts everything starting with 'v' and stops before the ']' 
           # Matches: v0.108.0-a.1244+82f2ac68
