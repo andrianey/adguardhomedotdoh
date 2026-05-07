@@ -66,7 +66,7 @@ build_auto:
     # Changed --no-cache to --pull to speed up the inspection stage
     docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
 
-    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
+    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ +]*' | head -1 || echo "edge")
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
     UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
@@ -147,15 +147,16 @@ update_readme_badge:
         agh_badge = badge(agh, "6ABF4B")
         ub_badge  = badge(ub, "0077CC")
         dp_badge  = badge(dp, "6ABF4B")
-        pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
+        pattern = re.compile(rf"^(?P<prefix>\|\s*`{re.escape(branch)}`[^|]*\|)\s*(?:[^|\n]*\|){3}(?P<tail>.*)")
         with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
         new_lines = []
         updated = False
         for line in lines:
             m = pattern.match(line.rstrip('\r\n'))
             if m:
-                tail = m.group(1)
-                new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
+                prefix = m.group('prefix')
+                tail = m.group('tail')
+                new_lines.append(f"{prefix} {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n")
                 updated = True
             else: new_lines.append(line)
         if updated:
