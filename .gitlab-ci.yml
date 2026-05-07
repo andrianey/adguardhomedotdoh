@@ -147,7 +147,7 @@ update_readme_badge:
         agh_badge = badge(agh, "6ABF4B")
         ub_badge  = badge(ub, "0077CC")
         dp_badge  = badge(dp, "6ABF4B")
-        pattern = re.compile(rf"^(?P<prefix>\|\s*`{re.escape(branch)}`[^|]*\|)\s*(?:[^|\n]*\|){3}(?P<tail>.*)")
+        pattern = re.compile(rf"^(?P<prefix>\|\s*`{re.escape(branch)}`[^|]*\|)\s*(?:[^|\n]*\|){{3}}(?P<tail>.*)")
         with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
         new_lines = []
         updated = False
