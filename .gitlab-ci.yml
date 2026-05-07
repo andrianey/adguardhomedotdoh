@@ -147,15 +147,16 @@ update_readme_badge:
         agh_badge = badge(agh, "6ABF4B")
         ub_badge  = badge(ub, "0077CC")
         dp_badge  = badge(dp, "6ABF4B")
-        pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
+        pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|([^|]*\|)(?:[^|\n]*\|){{3}}(.*)")
         with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
         new_lines = []
         updated = False
         for line in lines:
             m = pattern.match(line.rstrip('\r\n'))
             if m:
-                tail = m.group(1)
-                new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
+                img_size_cell = m.group(1)
+                tail = m.group(2)
+                new_lines.append(f'| `{branch}` |{img_size_cell} {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
                 updated = True
             else: new_lines.append(line)
         if updated:
