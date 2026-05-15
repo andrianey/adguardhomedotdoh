@@ -62,8 +62,7 @@ build_auto:
       PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
     fi
 
-    echo "==> Inspecting versions (using cache if available)..."
-    # Changed --no-cache to --pull to speed up the inspection stage
+    echo "==> Inspecting versions..."
     docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
 
     AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
@@ -77,14 +76,10 @@ build_auto:
 
     docker rmi inspect-image 2>/dev/null || true
 
-    AGH_VAR_CLEAN=$(echo "$AGH_VER" | tr -d '\n\r')
-    UNBOUND_VAR_CLEAN=$(echo "$UNBOUND_VER" | tr -d '\n\r')
-    DNSPROXY_VAR_CLEAN=$(echo "$DNSPROXY_VER" | tr -d '\n\r')
-
     {
-      echo "AGH_VER=$AGH_VAR_CLEAN"
-      echo "UNBOUND_VER=$UNBOUND_VAR_CLEAN"
-      echo "DNSPROXY_VER=$DNSPROXY_VAR_CLEAN"
+      echo "AGH_VER=$(echo "$AGH_VER" | tr -d '\n\r')"
+      echo "UNBOUND_VER=$(echo "$UNBOUND_VER" | tr -d '\n\r')"
+      echo "DNSPROXY_VER=$(echo "$DNSPROXY_VER" | tr -d '\n\r')"
     } > versions.env
 
     echo "==> Pushing multi-platform image..."
@@ -93,7 +88,7 @@ build_auto:
       --platform "$PLATFORMS" \
       --provenance=false \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
   artifacts:
@@ -135,7 +130,6 @@ update_readme_badge:
     git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
     git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
-    # Generate the python script file first
     cat << 'PYEOF' > update_readme.py
     import sys, re
     def run():
@@ -144,59 +138,57 @@ update_readme_badge:
         def badge(v, c):
             url = f"https://img.shields.io/badge/-{encode(v)}-{c}"
             return f"![{v}]({url})"
+        
         agh_badge = badge(agh, "6ABF4B")
         ub_badge  = badge(ub, "0077CC")
         dp_badge  = badge(dp, "6ABF4B")
-        pattern = re.compile(rf"^\|\s*`{re.escape(branch)}`\s*\|(?:[^|\n]*\|){{3}}(.*)")
-        with open('README.md', 'r', encoding='utf-8') as f: lines = f.readlines()
+        
+        # Regex: Tag | (capture) | skip Image Size | (capture Description)
+        # Actual columns: Tag | AdGuardHome | Unbound | dnsproxy | Image Size | Description
+        pattern = re.compile(rf"^(\|\s*`{re.escape(branch)}`\s*\|)(?:\s*[^|]*\s*\|){{3}}([^|]*\|)(.*)")
+        
+        with open('README.md', 'r', encoding='utf-8') as f: 
+            lines = f.readlines()
+        
         new_lines = []
         updated = False
         for line in lines:
             m = pattern.match(line.rstrip('\r\n'))
             if m:
-                tail = m.group(1)
-                new_lines.append(f'| `{branch}` | {agh_badge} | {ub_badge} | {dp_badge} | {tail}\n')
+                tag_col = m.group(1)      # | `branch` |
+                img_size_col = m.group(2) # Image Size badge |
+                description = m.group(3)  # Description |
+                new_lines.append(f"{tag_col} {agh_badge} | {ub_badge} | {dp_badge} | {img_size_col} {description}\n")
                 updated = True
-            else: new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
         if updated:
-            with open('README.md', 'w', encoding='utf-8') as f: f.writelines(new_lines)
+            with open('README.md', 'w', encoding='utf-8') as f: 
+                f.writelines(new_lines)
             print(f"SUCCESS: Updated row '{branch}'")
-        else: sys.exit(1)
+        else:
+            sys.exit(1)
     if __name__ == "__main__": run()
     PYEOF
 
-    # REFRESH AND CHECKOUT FIRST, THEN MODIFY
     for i in 1 2 3; do
       git fetch origin latest
       git checkout -B latest origin/latest
-      
-      # Now that we are on the clean branch, apply the changes
       python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
-      
       git add README.md
       if git diff-index --quiet HEAD -- README.md; then
-        echo "==> README already up to date (try $i), done."
+        echo "==> README already up to date, skipping push."
         break
       fi
-      
       git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
       if git push origin HEAD:latest; then
         git push github HEAD:latest || echo "WARNING: GitHub push failed"
-        
-        # Docker Hub Sync Logic
-        DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" \
-          -H "Content-Type: application/json" \
-          -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" \
-          | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+        DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
         python3 -c "import json; f=open('README.md'); b=json.dumps({'full_description':f.read()}); f.close(); o=open('dh_payload.json','w'); o.write(b); o.close()"
-        curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" \
-          -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" \
-          -H "Authorization: JWT ${DH_TOKEN}" \
-          -H "Content-Type: application/json" \
-          -d @dh_payload.json || echo "WARNING: Docker Hub sync failed"
+        curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" -H "Authorization: JWT ${DH_TOKEN}" -H "Content-Type: application/json" -d @dh_payload.json
         break
       fi
-      echo "==> Push rejected, retrying..."
       sleep $i
     done
   rules:
@@ -211,10 +203,7 @@ promote_live:
     else SOURCE_TAG="${CI_COMMIT_BRANCH}-auto"; DEST_TAG="${CI_COMMIT_BRANCH}"; fi
     echo "==> Promoting $IMAGE_NAME:${SOURCE_TAG} -> $IMAGE_NAME:${DEST_TAG}..."
     docker buildx imagetools create -t $IMAGE_NAME:${DEST_TAG} $IMAGE_NAME:${SOURCE_TAG}
-    echo "==> Deleting -auto tag..."
     DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | jq -r '.token // empty')
-    curl -s -o /dev/null -w "%{http_code}" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
+    curl -s -o /dev/null -w "Cleanup -auto tag HTTP: %{http_code}\n" -X DELETE "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${SOURCE_TAG}/" -H "Authorization: JWT ${DH_TOKEN}"
   rules:
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-
-#    when: manual
