@@ -83,12 +83,28 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 # ============================================
 FROM alpine:latest
 
+ARG ADGUARDHOME_VERSION=edge
+ARG DNSPROXY_VERSION=unknown
+ARG DNSPROXY_REVISION=unknown
+ARG UNBOUND_VERSION=unknown
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+ARG BRANCH=unknown
+
 # Set labels for the image
 LABEL maintainer="andrianey"
 LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
 LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
 LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
 LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
+LABEL org.opencontainers.image.version="${ADGUARDHOME_VERSION}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.ref.name="${BRANCH}"
+LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
+LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
+LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
+LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 
 # 1. Install dependencies
 RUN apk update && apk add --no-cache \
