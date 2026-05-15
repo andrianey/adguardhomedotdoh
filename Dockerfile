@@ -1,76 +1,72 @@
-# ============================================================================
-# AdGuardHome + DoT + DoH using Wolfi Base Image
-# Components: AdGuard Home, Stubby (DoT), Unbound, Cloudflared (DoH)
-# 
-# Uses Debian for builder stages (glibc compatible) and Wolfi for final image
-# ============================================================================
+# ============================================
+# Stage 1: Extract AdGuard Home from official image
+# ============================================
+FROM adguard/adguardhome:latest AS adguard-source
 
-# -----------------------------------------------------------------------------
-# Stage 1: Source for AdGuard Home (Edge/Nightly for latest fixes)
-# -----------------------------------------------------------------------------
-FROM adguard/adguardhome:edge AS adguard_source
+# ============================================
+# Stage 2: Helper stage to download dnsproxy
+# ============================================
+FROM alpine:latest AS builder_helpers
 
-# -----------------------------------------------------------------------------
-# Stage 2: Build dnsproxy from source (Fixes CVEs in deps and Go stdlib)
-# -----------------------------------------------------------------------------
-FROM golang:1.26-alpine AS builder_dnsproxy
+RUN apk update && apk add --no-cache curl jq ca-certificates
 
-RUN apk add --no-cache git
+# Download dnsproxy
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    case "$ARCH" in \
+    aarch64|arm64) \
+    DNSPROXY_ARCH="linux-arm64"; \
+    ;; \
+    armv7l|armhf) \
+    DNSPROXY_ARCH="linux-armv7"; \
+    ;; \
+    x86_64|amd64) \
+    DNSPROXY_ARCH="linux-amd64"; \
+    ;; \
+    *) \
+    echo "Unsupported architecture: $ARCH"; \
+    exit 1; \
+    ;; \
+    esac; \
+    # Fetch latest release URL dynamically
+    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
+    jq -r ".assets[] | select(.name | contains(\"${DNSPROXY_ARCH}\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
+    if [ -z "$DNSPROXY_URL" ] || [ "$DNSPROXY_URL" = "null" ]; then \
+    if [ "$DNSPROXY_ARCH" = "linux-armv7" ]; then \
+    DNSPROXY_URL=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | \
+    jq -r ".assets[] | select(.name | contains(\"linux-arm7\") and contains(\".tar.gz\")) | .browser_download_url" | head -n 1); \
+    fi; \
+    fi; \
+    echo "Downloading dnsproxy from: ${DNSPROXY_URL}"; \
+    curl -L -o /tmp/dnsproxy.tar.gz "${DNSPROXY_URL}"; \
+    tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
+    # Find binary regardless of directory structure
+    find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
+    chmod +x /usr/local/bin/dnsproxy && \
+    /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
 
-WORKDIR /src/dnsproxy
-# Clone latest source and fetch all tags
-RUN git clone https://github.com/AdguardTeam/dnsproxy.git . && \
-    git fetch --tags && \
-    git pull origin master
-# Force update quic-go to fix CVE-2025-64702
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go get github.com/quic-go/quic-go@latest && go mod tidy
-# Extract version info from git and write to a file for label injection
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    VERSION=$(git describe --tags --always --dirty) && \
-    REVISION=$(git rev-parse --short HEAD) && \
-    BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
-    COMMIT_TIME=$(git log -1 --format=%ct) && \
-    echo "${VERSION}" > /tmp/dnsproxy_version && \
-    echo "${REVISION}" > /tmp/dnsproxy_revision && \
-    go build -trimpath -v -ldflags "-s -w \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.branch=${BRANCH} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.committime=${COMMIT_TIME}" \
-    -o /usr/local/bin/dnsproxy .
 
-# Download root.hints for Unbound
-RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
+# ============================================
+# Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
+# ============================================
+FROM alpine:latest AS builder_unbound
 
-# -----------------------------------------------------------------------------
-# Stage 3: Builder stage for Unbound (compiled with Redis cachedb support)
-# -----------------------------------------------------------------------------
-FROM debian:bookworm-slim AS builder_unbound
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
+RUN apk add --no-cache \
+    build-base \
     libevent-dev \
-    libexpat1-dev \
-    libhiredis-dev \
+    expat-dev \
+    hiredis-dev \
+    openssl-dev \
     bison \
     flex \
     wget \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates
 
 WORKDIR /tmp/unbound
-# Unbound version Latest — extract version string and save for label injection
 RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && tar -xzf unbound-latest.tar.gz \
     && rm unbound-latest.tar.gz \
-    && UNBOUND_DIR=$(ls -d unbound-*/ | head -n1) \
-    && UNBOUND_VERSION=$(echo "$UNBOUND_DIR" | sed 's/unbound-//;s|/||') \
-    && echo "${UNBOUND_VERSION}" > /tmp/unbound_version \
-    && cd "$UNBOUND_DIR" \
+    && cd unbound-* \
     && ./configure \
     --prefix=/usr \
     --sysconfdir=/etc \
@@ -78,143 +74,89 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     --with-libevent \
     --with-libhiredis \
     --enable-cachedb \
-    --with-pidfile=/run/unbound.pid \
+    --with-pidfile=/var/run/unbound.pid \
     && make -j$(nproc) \
     && make install DESTDIR=/tmp/unbound/install
 
-# Prepare libraries for copy (handle multi-arch path)
-RUN mkdir -p /output/lib \
-    && cp /usr/lib/*/libhiredis.so* /output/lib/ \
-    && cp /usr/lib/*/libevent* /output/lib/
+# ============================================
+# Stage 4: Final image with Alpine Latest
+# ============================================
+FROM alpine:latest
 
-# -----------------------------------------------------------------------------
-# Stage 4: Final image using Wolfi
-# -----------------------------------------------------------------------------
-FROM cgr.dev/chainguard/wolfi-base:latest AS final
+ARG ADGUARDHOME_VERSION=edge
+ARG DNSPROXY_VERSION=unknown
+ARG DNSPROXY_REVISION=unknown
+ARG UNBOUND_VERSION=unknown
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+ARG BRANCH=unknown
 
-# Inject component versions captured in builder stages as build args, then as labels
-ARG ADGUARDHOME_VERSION="edge"
-ARG DNSPROXY_VERSION="unknown"
-ARG DNSPROXY_REVISION="unknown"
-ARG UNBOUND_VERSION="unknown"
-ARG BUILD_DATE
-ARG VCS_REF
-ARG BRANCH
-
+# Set labels for the image
 LABEL maintainer="andrianey"
-LABEL name="adguardhome-doh-dot-wolfi-hardened"
-LABEL description="Hardened AdGuard Home with DoT/DoH support using dnsproxy, Unbound, Valkey on Wolfi"
+LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
 LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
-LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Hardened-Wolfi)"
-LABEL org.opencontainers.image.description="Maximum security: Wolfi base + non-root + source builds"
-
-# OCI standard labels
-LABEL org.opencontainers.image.title="AdGuardHome DoH/DoT"
-LABEL org.opencontainers.image.description="AdGuard Home with Unbound + dnsproxy on Wolfi"
-LABEL org.opencontainers.image.source="https://gitlab.com/andrianey/adguardhomedotdoh"
-LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
+LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
+LABEL org.opencontainers.image.version="${ADGUARDHOME_VERSION}"
 LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.ref.name="${BRANCH}"
-
-# Component version labels (inspectable via: docker inspect <image> | grep label)
 LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
 LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
 LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
 LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 
-# Install runtime dependencies from Wolfi repos with retry
+# 1. Install dependencies
 RUN apk update && apk add --no-cache \
-    bash \
-    ca-certificates \
-    openssl \
     libevent \
+    hiredis \
     valkey \
-    tini \
+    expat \
+    ca-certificates \
     tzdata \
-    libssl3 \
-    libcap-utils \
-    libexpat1 \
-    shadow \
-    su-exec
+    bash \
+    && rm -rf /var/cache/apk/*
 
-# Create non-root user
-RUN groupadd -r adguard && \
-    useradd --no-log-init -r -g adguard -u 1000 adguard
+# 2. Copy AdGuard Home binary from the official image
+COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
 
-# Create necessary directories and device nodes
-RUN mkdir -p /opt/adguardhome/conf \
-    && mkdir -p /opt/adguardhome/work \
-    && mkdir -p /var/lib/unbound \
-    && mkdir -p /usr/local/var/run \
-    && mkdir -p /var/log \
-    && mkdir -p /usr/local/lib \
-    && mkdir -p /dev \
-    && mknod -m 666 /dev/null c 1 3 2>/dev/null || true
+# 3. Copy dnsproxy from helpers
+COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
+COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
 
-# Copy AdGuard Home from source stage
-COPY --from=adguard_source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
+# 4. Setup AdGuard Home directories and permissions
+RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
+    chmod 700 /opt/adguardhome/work
 
-# Copy dnsproxy from builder_dnsproxy
-COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
-# Copy version files from builder stages
-COPY --from=builder_dnsproxy /tmp/dnsproxy_version /tmp/dnsproxy_version
-COPY --from=builder_dnsproxy /tmp/dnsproxy_revision /tmp/dnsproxy_revision
-COPY --from=builder_unbound /tmp/unbound_version /tmp/unbound_version
-
-# Copy root.hints for Unbound
-COPY --from=builder_dnsproxy /tmp/root.hints /var/lib/unbound/root.hints
-
-# Copy Unbound from builder_unbound
+# 5. Setup Unbound (Copy from builder)
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
-COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/local/lib/
-COPY --from=builder_unbound /output/lib/libhiredis.so* /usr/local/lib/
-COPY --from=builder_unbound /output/lib/libevent* /usr/local/lib/
+COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/lib/
+# Copy required libs
+COPY --from=builder_unbound /usr/lib/libhiredis.so* /usr/lib/
+COPY --from=builder_unbound /usr/lib/libevent* /usr/lib/
 
-# Copy configuration files
-COPY unbound/unbound.conf /etc/unbound/unbound.conf
-
-# Check configuration files for windows line endings
-RUN sed -i 's/\r$//' /etc/unbound/unbound.conf
-
-# Copy entrypoint script
-COPY entrypoint.sh /opt/entrypoint.sh
-RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
-
-# Set permissions and capabilities
-RUN chown -R adguard:adguard /opt/adguardhome \
-    && chown -R adguard:adguard /var/lib/unbound \
-    && chown -R adguard:adguard /etc/unbound \
-    && chown -R adguard:adguard /var/log \
-    && chown adguard:adguard /opt/entrypoint.sh \
-    && chmod 700 /opt/adguardhome/work \
-    && chmod 755 /opt/adguardhome/AdGuardHome \
-    && chmod 755 /usr/local/bin/dnsproxy \
-    && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
-    && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
-    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy && \
+RUN mkdir -p /var/lib/unbound/ && \
+    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root && \
     /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
-# Expose ports
-# DNS (TCP/UDP)
-EXPOSE 53/tcp 53/udp \
-    67/udp \
-    68/udp \
-    80/tcp \
-    443/tcp 443/udp \
-    853/tcp 853/udp \
-    3000/tcp 3000/udp \
-    5443/tcp 5443/udp \
-    6060/tcp
+COPY unbound/unbound.conf /etc/unbound/unbound.conf
 
-# Volumes for persistent data
+# 6. Setup Cron & Permissions
+COPY crontab/root /tmp/crontab_root
+RUN cat /tmp/crontab_root >> /var/spool/cron/crontabs/root && rm -f /tmp/crontab_root
+
+# 7. Entrypoint script (Ensure it uses /bin/sh)
+COPY entrypoint.sh /opt/entrypoint.sh
+RUN chmod +x /opt/entrypoint.sh && \
+    sed -i 's/\r$//' /opt/entrypoint.sh
+
+# Expose ports
+EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/tcp 5443/tcp 5443/udp
+
+# Volumes
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
 
-# Run as root initially to allow entrypoint to drop privileges
-USER root
-
-# Use tini as init system
-ENTRYPOINT ["/sbin/tini", "--", "/opt/entrypoint.sh"]
+ENTRYPOINT ["/opt/entrypoint.sh"]
