@@ -1,7 +1,47 @@
-# ============================================
-# Stage 1: Extract AdGuard Home from official image
-# ============================================
-FROM adguard/adguardhome:latest AS adguard-source
+# ============================================================================
+# AdGuardHome + DoT + DoH using Wolfi Base Image
+# Components: AdGuard Home, Stubby (DoT), Unbound, Cloudflared (DoH)
+# 
+# Uses Debian for builder stages (glibc compatible) and Wolfi for final image
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Builder stage for Stubby (using Debian for glibc compatibility)
+# -----------------------------------------------------------------------------
+# ============================================================================
+# Stage 1: Builder stage for AdGuard Home (using Alpine for speed)
+# ============================================================================
+FROM alpine:latest AS builder_adguard
+
+RUN apk update && apk add --no-cache \
+    wget \
+    ca-certificates
+
+# Download AdGuard Home based on architecture
+RUN set -eux; \
+    ARCH="$(uname -m)"; \
+    echo "Detected architecture: $ARCH"; \
+    case "$ARCH" in \
+    aarch64|arm64) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_arm64.tar.gz"; \
+    ;; \
+    armv7l|armhf) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_armv7.tar.gz"; \
+    ;; \
+    x86_64|amd64) \
+    AGH_URL="https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz"; \
+    ;; \
+    *) \
+    echo "Unsupported architecture: $ARCH"; \
+    exit 1; \
+    ;; \
+    esac; \
+    echo "Downloading AdGuard Home from: ${AGH_URL}"; \
+    wget -O /tmp/adguardhome.tar.gz "${AGH_URL}"; \
+    tar -xzf /tmp/adguardhome.tar.gz -C /tmp; \
+    mv /tmp/AdGuardHome/AdGuardHome /usr/local/bin/AdGuardHome; \
+    chmod +x /usr/local/bin/AdGuardHome; \
+    echo "AdGuard Home installed successfully"
 
 # ============================================
 # Stage 2: Helper stage to download dnsproxy
@@ -45,24 +85,28 @@ RUN set -eux; \
     chmod +x /usr/local/bin/dnsproxy && \
     /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
 
+# Download root.hints for Unbound
+RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 
-# ============================================
-# Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
-# ============================================
-FROM alpine:latest AS builder_unbound
+# -----------------------------------------------------------------------------
+# Stage 3: Builder stage for Unbound (compiled with Redis cachedb support)
+# -----------------------------------------------------------------------------
+FROM debian:bookworm-slim AS builder_unbound
 
-RUN apk add --no-cache \
-    build-base \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libssl-dev \
     libevent-dev \
-    expat-dev \
-    hiredis-dev \
-    openssl-dev \
+    libexpat1-dev \
+    libhiredis-dev \
     bison \
     flex \
     wget \
-    ca-certificates
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/unbound
+# Unbound version Latest
 RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && tar -xzf unbound-latest.tar.gz \
     && rm unbound-latest.tar.gz \
@@ -74,89 +118,109 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     --with-libevent \
     --with-libhiredis \
     --enable-cachedb \
-    --with-pidfile=/var/run/unbound.pid \
+    --with-pidfile=/run/unbound.pid \
     && make -j$(nproc) \
     && make install DESTDIR=/tmp/unbound/install
 
-# ============================================
-# Stage 4: Final image with Alpine Latest
-# ============================================
-FROM alpine:latest
+# Prepare libraries for copy (handle multi-arch path)
+RUN mkdir -p /output/lib \
+    && cp /usr/lib/*/libhiredis.so* /output/lib/ \
+    && cp /usr/lib/*/libevent* /output/lib/
 
-ARG ADGUARDHOME_VERSION=edge
-ARG DNSPROXY_VERSION=unknown
-ARG DNSPROXY_REVISION=unknown
-ARG UNBOUND_VERSION=unknown
-ARG BUILD_DATE=unknown
-ARG VCS_REF=unknown
-ARG BRANCH=unknown
+# -----------------------------------------------------------------------------
+# Stage 4: Final image using Wolfi
+# -----------------------------------------------------------------------------
+FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
-# Set labels for the image
 LABEL maintainer="andrianey"
-LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
+LABEL name="adguardhome-doh-dot-wolfi"
+LABEL description="AdGuard Home with DoT/DoH support using dnsproxy, Unbound, Valkey on Wolfi"
 LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
-LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
-LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
-LABEL org.opencontainers.image.version="${ADGUARDHOME_VERSION}"
-LABEL org.opencontainers.image.revision="${VCS_REF}"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
-LABEL org.opencontainers.image.ref.name="${BRANCH}"
-LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
-LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
-LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
-LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
+LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest-Wolfi)"
+LABEL org.opencontainers.image.description="Wolfi-based AdGuard Home with Unbound, dnsproxy, and Valkey"
 
-# 1. Install dependencies
+# Install runtime dependencies from Wolfi repos with retry
 RUN apk update && apk add --no-cache \
-    libevent \
-    hiredis \
-    valkey \
-    expat \
-    ca-certificates \
-    tzdata \
     bash \
-    && rm -rf /var/cache/apk/*
+    ca-certificates \
+    openssl \
+    libevent \
+    valkey \
+    tini \
+    tzdata \
+    libssl3 \
+    libcap-utils \
+    libexpat1 \
+    shadow \
+    su-exec
 
-# 2. Copy AdGuard Home binary from the official image
-COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
+# Create necessary directories and device nodes
+RUN mkdir -p /opt/adguardhome/conf \
+    && mkdir -p /opt/adguardhome/work \
+    && mkdir -p /var/lib/unbound \
+    && mkdir -p /usr/local/var/run \
+    && mkdir -p /var/log \
+    && mkdir -p /usr/local/lib \
+    && mkdir -p /dev \
+    && mknod -m 666 /dev/null c 1 3 2>/dev/null || true
 
-# 3. Copy dnsproxy from helpers
+# Copy AdGuard Home from Alpine builder
+COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardHome
+
+# Copy dnsproxy from helpers builder
 COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
 
-# 4. Setup AdGuard Home directories and permissions
-RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
-    chmod 700 /opt/adguardhome/work
+# Copy root.hints for Unbound
+COPY --from=builder_helpers /tmp/root.hints /var/lib/unbound/root.hints
 
-# 5. Setup Unbound (Copy from builder)
+# Copy Unbound from builder_unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sbin/unbound-anchor
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
-COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/lib/
-# Copy required libs
-COPY --from=builder_unbound /usr/lib/libhiredis.so* /usr/lib/
-COPY --from=builder_unbound /usr/lib/libevent* /usr/lib/
+COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/local/lib/
+COPY --from=builder_unbound /output/lib/libhiredis.so* /usr/local/lib/
+COPY --from=builder_unbound /output/lib/libevent* /usr/local/lib/
 
-RUN mkdir -p /var/lib/unbound/ && \
-    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root && \
-    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
+# Set library path
+ENV LD_LIBRARY_PATH="/usr/local/lib"
 
+# Copy configuration files
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 
-# 6. Setup Cron & Permissions
-COPY crontab/root /tmp/crontab_root
-RUN cat /tmp/crontab_root >> /var/spool/cron/crontabs/root && rm -f /tmp/crontab_root
+# Check configuration files for windows line endings
+RUN sed -i 's/\r$//' /etc/unbound/unbound.conf
 
-# 7. Entrypoint script (Ensure it uses /bin/sh)
+# Copy entrypoint script
 COPY entrypoint.sh /opt/entrypoint.sh
-RUN chmod +x /opt/entrypoint.sh && \
-    sed -i 's/\r$//' /opt/entrypoint.sh
+RUN sed -i 's/\r$//' /opt/entrypoint.sh && chmod +x /opt/entrypoint.sh
+
+# Set permissions and capabilities
+RUN chmod 700 /opt/adguardhome/work \
+    && chmod 755 /opt/adguardhome/AdGuardHome \
+    && chmod 755 /usr/local/bin/dnsproxy \
+    && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
+    && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy && \
+    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
 # Expose ports
-EXPOSE 53/tcp 53/udp 67/udp 68/udp 80/tcp 443/tcp 443/udp 853/tcp 853/udp 3000/tcp 5443/tcp 5443/udp
+EXPOSE 53/tcp 53/udp \
+    67/udp \
+    68/udp \
+    80/tcp \
+    443/tcp 443/udp \
+    853/tcp 853/udp \
+    3000/tcp 3000/udp \
+    5443/tcp 5443/udp \
+    6060/tcp
 
-# Volumes
+# Volumes for persistent data
 VOLUME ["/opt/adguardhome/conf", "/opt/adguardhome/work"]
 
-ENTRYPOINT ["/opt/entrypoint.sh"]
+# Run as root explicitly
+USER root
+
+# Use tini as init system
+ENTRYPOINT ["/sbin/tini", "--", "/opt/entrypoint.sh"]
