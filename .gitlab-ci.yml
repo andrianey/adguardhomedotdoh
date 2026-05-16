@@ -77,6 +77,9 @@ build_auto:
 
     docker rmi inspect-image 2>/dev/null || true
 
+    SBOM_FILE="sbom.json"
+    : > "$SBOM_FILE"
+
     {
       echo "AGH_VER=$(echo "$AGH_VER" | tr -d '\n\r')"
       echo "UNBOUND_VER=$(echo "$UNBOUND_VER" | tr -d '\n\r')"
@@ -92,9 +95,19 @@ build_auto:
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
+
+    if [ "$CI_COMMIT_BRANCH" == "hardened-wolfi" ]; then
+      echo "==> Generating SBOM for $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto"
+      docker run --rm \
+        -e SYFT_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME" \
+        -e SYFT_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD" \
+        anchore/syft:latest "registry:docker.io/${IMAGE_NAME}:${CI_COMMIT_BRANCH}-auto" -o json > "$SBOM_FILE"
+    fi
   artifacts:
     reports:
       dotenv: versions.env
+    paths:
+    - sbom.json
     expire_in: 1 hour
   rules:
   - if: '$CI_PIPELINE_SOURCE == "trigger"'
@@ -109,6 +122,41 @@ create_manifest:
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
   needs: [ "build_auto" ]
 
+cve_scan_hardened_wolfi_manual:
+  stage: scan
+  image: cgr.dev/chainguard/wolfi-base:latest
+  tags:
+  - oracle
+  needs: []
+  when: manual
+  variables:
+    SCAN_TAG: "hardened-wolfi-auto"
+  before_script:
+  - apk add --no-cache curl libarchive-tools grype syft
+  script:
+  - |
+    export GRYPE_DB_AUTO_UPDATE="true"
+    export SYFT_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export SYFT_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+    export GRYPE_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export GRYPE_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+
+    TARGET_TAG="${SCAN_TAG:-hardened-wolfi-auto}"
+    TARGET_REF="registry:docker.io/${IMAGE_NAME}:${TARGET_TAG}"
+    echo "==> Generating SBOM for $TARGET_REF"
+    syft "$TARGET_REF" -o json > sbom-manual.json
+
+    echo "==> Updating vulnerability DB"
+    grype db update --only-update
+
+    echo "==> Scanning $TARGET_REF for fixable CVEs"
+    grype sbom:sbom-manual.json \
+      --only-fixed \
+      --fail-on negligible \
+      --scope all-layers
+  rules:
+  - if: '$CI_COMMIT_BRANCH == "hardened-wolfi"'
+
 cve_scan_hardened_wolfi:
   stage: scan
   image: cgr.dev/chainguard/wolfi-base:latest
@@ -116,8 +164,9 @@ cve_scan_hardened_wolfi:
   - oracle
   needs:
   - job: build_auto
+    artifacts: true
   before_script:
-  - apk add --no-cache curl tar gzip grype
+  - apk add --no-cache curl libarchive-tools grype
   script:
   - |
     if [ "$CI_COMMIT_BRANCH" != "hardened-wolfi" ]; then
@@ -132,13 +181,59 @@ cve_scan_hardened_wolfi:
     export GRYPE_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
 
     TARGET_REF="registry:docker.io/${IMAGE_NAME}:${CI_COMMIT_BRANCH}-auto"
-    echo "==> Scanning $TARGET_REF for fixable CVEs"
-    grype "$TARGET_REF" \
+    echo "==> Updating vulnerability DB"
+    grype db update --only-update
+
+    SBOM_FILE="sbom.json"
+    if [ ! -s "$SBOM_FILE" ]; then
+      echo "WARNING: SBOM artifact missing; falling back to direct image scan"
+      grype "$TARGET_REF" \
+        --only-fixed \
+        --fail-on negligible \
+        --scope all-layers
+    else
+      echo "==> Scanning SBOM for $TARGET_REF"
+      grype sbom:"$SBOM_FILE" \
+        --only-fixed \
+        --fail-on negligible \
+        --scope all-layers
+    fi
+  rules:
+  - if: '$CI_COMMIT_BRANCH == "hardened-wolfi"'
+
+cve_scan_hardened_wolfi_promoted:
+  stage: scan
+  image: cgr.dev/chainguard/wolfi-base:latest
+  tags:
+  - oracle
+  needs: []
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  variables:
+    SCAN_TAG: "hardened-wolfi"
+  before_script:
+  - apk add --no-cache curl libarchive-tools grype syft
+  script:
+  - |
+    export GRYPE_DB_AUTO_UPDATE="true"
+    export SYFT_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export SYFT_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+    export GRYPE_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export GRYPE_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+
+    TARGET_TAG="${SCAN_TAG:-hardened-wolfi}"
+    TARGET_REF="registry:docker.io/${IMAGE_NAME}:${TARGET_TAG}"
+    echo "==> Generating SBOM for promoted tag $TARGET_REF"
+    syft "$TARGET_REF" -o json > sbom-promoted.json
+
+    echo "==> Updating vulnerability DB"
+    grype db update --only-update
+
+    echo "==> Scanning promoted tag for fixable CVEs"
+    grype sbom:sbom-promoted.json \
       --only-fixed \
       --fail-on negligible \
       --scope all-layers
-  rules:
-  - if: '$CI_COMMIT_BRANCH == "hardened-wolfi"'
 
 update_readme_badge:
   tags:
