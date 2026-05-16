@@ -147,7 +147,7 @@ cve_scan_hardened_wolfi_manual:
     syft "$TARGET_REF" -o json > sbom-manual.json
 
     echo "==> Updating vulnerability DB"
-    grype db update --only-update
+    grype db update
 
     echo "==> Scanning $TARGET_REF for fixable CVEs"
     grype sbom:sbom-manual.json \
@@ -182,7 +182,7 @@ cve_scan_hardened_wolfi:
 
     TARGET_REF="registry:docker.io/${IMAGE_NAME}:${CI_COMMIT_BRANCH}-auto"
     echo "==> Updating vulnerability DB"
-    grype db update --only-update
+    grype db update
 
     SBOM_FILE="sbom.json"
     if [ ! -s "$SBOM_FILE" ]; then
@@ -227,7 +227,7 @@ cve_scan_hardened_wolfi_promoted:
     syft "$TARGET_REF" -o json > sbom-promoted.json
 
     echo "==> Updating vulnerability DB"
-    grype db update --only-update
+    grype db update
 
     echo "==> Scanning promoted tag for fixable CVEs"
     grype sbom:sbom-promoted.json \
