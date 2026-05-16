@@ -117,7 +117,7 @@ cve_scan_hardened_wolfi_manual:
   needs: []
   when: manual  
   before_script:
-  - apk add --no-cache curl tar gzip grype
+  - apk add --no-cache curl libarchive-tools grype
   script:
   - |
     if [ "$CI_COMMIT_BRANCH" != "hardened-wolfi" ]; then
@@ -148,7 +148,7 @@ cve_scan_hardened_wolfi:
   needs:
   - job: build_auto
   before_script:
-  - apk add --no-cache curl tar gzip grype
+  - apk add --no-cache curl libarchive-tools grype
   script:
   - |
     if [ "$CI_COMMIT_BRANCH" != "hardened-wolfi" ]; then
