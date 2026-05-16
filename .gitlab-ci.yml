@@ -111,11 +111,18 @@ create_manifest:
 
 cve_scan_hardened_wolfi:
   stage: scan
-  image: cgr.dev/chainguard/grype:latest
+  image: alpine:3.20
   tags:
   - oracle
   needs:
   - job: build_auto
+  before_script:
+  - apk add --no-cache curl tar gzip
+  - |
+    GRYPE_VERSION="v0.79.4"
+    curl -sSfL "https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}/grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz" \
+      | tar -xz -C /usr/local/bin grype
+    chmod +x /usr/local/bin/grype
   script:
   - |
     if [ "$CI_COMMIT_BRANCH" != "hardened-wolfi" ]; then
