@@ -115,7 +115,7 @@ cve_scan_hardened_wolfi:
   tags:
   - oracle
   needs:
-  - job: build_auto
+#  - job: build_auto
   before_script:
   - apk add --no-cache curl tar gzip grype
   script:
