@@ -123,20 +123,26 @@ LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
 LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
 LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 
-# Install runtime dependencies from Wolfi repos with retry
-RUN apk update && apk add --no-cache \
-    bash \
-    ca-certificates \
-    openssl \
-    libevent \
-    valkey \
-    tini \
-    tzdata \
-    libssl3 \
-    libcap-utils \
-    libexpat1 \
-    shadow \
-    su-exec
+# Install runtime dependencies from Wolfi repos with CVE-aware upgrades
+RUN set -eux; \
+    apk update; \
+    apk upgrade --available --no-cache; \
+    apk add --no-cache \
+      bash \
+      ca-certificates \
+      openssl \
+      libevent \
+      valkey \
+      tini \
+      tzdata \
+      libssl3 \
+      libcap-utils \
+      libexpat1 \
+      shadow \
+      su-exec; \
+    apk audit --update-cache --no-cache --repository https://packages.wolfi.dev/os \
+      | tee /tmp/apk-audit.log \
+      || true
 
 # Create non-root user
 RUN groupadd -r adguard && \

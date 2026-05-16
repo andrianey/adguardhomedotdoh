@@ -1,5 +1,6 @@
 stages:
 - build
+- scan
 - manifest
 - badge
 - promote
@@ -107,6 +108,35 @@ create_manifest:
   rules:
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
   needs: [ "build_auto" ]
+
+cve_scan_hardened_wolfi:
+  stage: scan
+  image: cgr.dev/chainguard/grype:latest
+  tags:
+  - oracle
+  needs:
+  - job: build_auto
+  script:
+  - |
+    if [ "$CI_COMMIT_BRANCH" != "hardened-wolfi" ]; then
+      echo "Skipping CVE scan for branch $CI_COMMIT_BRANCH"
+      exit 0
+    fi
+
+    export GRYPE_DB_AUTO_UPDATE="true"
+    export SYFT_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export SYFT_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+    export GRYPE_REGISTRY_AUTH_USERNAME="$DOCKER_HUB_USERNAME"
+    export GRYPE_REGISTRY_AUTH_PASSWORD="$DOCKER_HUB_PASSWORD"
+
+    TARGET_REF="registry:docker.io/${IMAGE_NAME}:${CI_COMMIT_BRANCH}-auto"
+    echo "==> Scanning $TARGET_REF for fixable CVEs"
+    grype "$TARGET_REF" \
+      --only-fixed \
+      --fail-on negligible \
+      --scope all-layers
+  rules:
+  - if: '$CI_COMMIT_BRANCH == "hardened-wolfi"'
 
 update_readme_badge:
   tags:
