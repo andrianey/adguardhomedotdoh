@@ -10,12 +10,14 @@ workflow:
     when: never
   - if: '$CI_PIPELINE_SOURCE == "trigger"'
     when: always
-  - changes:
+  - if: '$CI_PIPELINE_SOURCE == "push"'
+    changes:
     - Dockerfile
     - entrypoint.sh
     - unbound/**/*
     - crontab/**/*
     - .gitlab-ci.yml
+    when: always
   - when: never
 
 variables:
