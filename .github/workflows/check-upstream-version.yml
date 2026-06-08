@@ -1,7 +1,8 @@
 name: Watch AdGuardHome Upstream
 on:
   schedule:
-    - cron: '0 * * * *'  # Hourly check
+    - cron: '0 * * * *'      # Hourly check for stable
+    - cron: '0 */6 * * *'    # Every 6 hours for edge
   workflow_dispatch:
 
 env:
@@ -23,14 +24,19 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Get Latest Version and Compare
         id: version_check
         run: |
+          # Skip edge builds unless it's a 6-hour interval or manual trigger
+          CURRENT_HOUR=$(date +%H)
+          if [[ "${{ matrix.type }}" == "edge" ]] && [[ "${{ github.event_name }}" == "schedule" ]]; then
+            if ! (( CURRENT_HOUR % 6 == 0 )); then
+              echo "⏭️ Skipping edge build (not a 6-hour interval: ${CURRENT_HOUR}h)"
+              echo "should_trigger=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
           # 1. Fetch Upstream Data (MATCHES YOUR GITLAB LOGIC)
           if [[ "${{ matrix.type }}" == "stable" ]]; then
             UPSTREAM=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
@@ -42,14 +48,13 @@ jobs:
             UPSTREAM=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome adguard/adguardhome:edge --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1)
           fi
 
-          # 2. Extract CLEAN version from README.md
+          # 2. Extract CLEAN version from README.md using regex (not column position)
           BRANCH_NAME="${{ matrix.branches[0] }}"
           RAW_ROW=$(grep "| \`$BRANCH_NAME\` |" README.md)
           
-          # Table columns: | Tag($2) | Image Size($3) | AdGuardHome($4) | Unbound($5) | dnsproxy($6) | ...
-          # Extracts everything starting with 'v' and stops before the ']'
-          # Matches: v0.108.0-a.1244+82f2ac68
-          CURRENT=$(echo "$RAW_ROW" | awk -F'|' '{print $3}' | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^]]*' | head -1 | cut -d']' -f1 | xargs)
+          # Match the AdGuardHome version badge pattern: ![vX.Y.Z...](...)
+          # This is robust to table column changes
+          CURRENT=$(echo "$RAW_ROW" | grep -oP '\!\[v[0-9]+\.[0-9]+\.[0-9]+[^\]]*\]' | head -1 | sed 's/!\[//;s/\]//' | xargs)
 
           echo "Upstream (from Binary): $UPSTREAM"
           echo "README (from Table):   $CURRENT"
@@ -70,6 +75,7 @@ jobs:
           GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
           GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
         run: |
+          FAILED_BRANCHES=""
           for branch in ${{ join(matrix.branches, ' ') }}; do
             echo "==> Triggering GitLab branch: $branch"
             BODY=$(mktemp)
@@ -84,8 +90,12 @@ jobs:
             else
               echo "❌ Failed: GitLab returned HTTP $RESPONSE"
               echo "Response body: $(cat "$BODY")"
-              rm -f "$BODY"
-              exit 1
+              FAILED_BRANCHES="$FAILED_BRANCHES $branch"
             fi
             rm -f "$BODY"
           done
+          
+          if [ -n "$FAILED_BRANCHES" ]; then
+            echo "❌ Failed to trigger branches:$FAILED_BRANCHES"
+            exit 1
+          fi

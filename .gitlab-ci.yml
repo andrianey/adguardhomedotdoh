@@ -1,6 +1,5 @@
 stages:
 - build
-- manifest
 - badge
 - promote
 
@@ -37,7 +36,7 @@ variables:
 .docker_setup: &docker_setup
   tags:
   - oracle
-  image: docker:latest
+  image: docker:27
   before_script:
   - apk add --no-cache curl jq
   - echo "$DOCKER_HUB_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
@@ -65,7 +64,8 @@ build_auto:
     fi
 
     echo "==> Inspecting versions..."
-    docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
+    mkdir -p "$BUILDX_CACHE_DIR"
+    docker buildx build --platform linux/amd64 --provenance=false --pull --cache-from type=local,src=$BUILDX_CACHE_DIR --load -t inspect-image .
 
     AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
@@ -101,19 +101,10 @@ build_auto:
   - if: '$CI_PIPELINE_SOURCE == "trigger"'
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
-create_manifest:
-  <<: *docker_setup
-  stage: manifest
-  script:
-  - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
-  rules:
-  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-  needs: [ "build_auto" ]
-
 update_readme_badge:
   tags:
   - oracle
-  image: alpine:latest
+  image: alpine:3.21
   stage: badge
   before_script:
   - apk add --no-cache git python3 curl
