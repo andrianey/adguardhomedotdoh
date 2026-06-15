@@ -123,6 +123,10 @@ update_readme_badge:
     git remote set-url origin "https://oauth2:${GL_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
     git remote add github "https://${GH_TOKEN}@github.com/andrianey/adguardhomedotdoh.git" 2>/dev/null || true
 
+    if [ -z "$GH_TOKEN" ]; then
+      echo "❌ WARNING: GH_TOKEN is not set — GitHub push will be skipped"
+    fi
+
     cat << 'PYEOF' > update_readme.py
     import sys, re
     def run():
@@ -176,7 +180,9 @@ update_readme_badge:
       fi
       git commit -m "ci: [skip ci] update badge for ${TARGET_ROW}"
       if git push origin HEAD:latest; then
-        git push github HEAD:latest || echo "WARNING: GitHub push failed"
+        if ! git push github HEAD:latest 2>&1; then
+          echo "❌ WARNING: GitHub push failed (check GH_TOKEN in GitLab CI/CD variables)"
+        fi
         DH_TOKEN=$(curl -s -X POST "https://hub.docker.com/v2/users/login/" -H "Content-Type: application/json" -d "{\"username\":\"${DOCKER_HUB_USERNAME}\",\"password\":\"${DOCKER_HUB_PASSWORD}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
         python3 -c "import json; f=open('README.md'); b=json.dumps({'full_description':f.read()}); f.close(); o=open('dh_payload.json','w'); o.write(b); o.close()"
         curl -s -o /dev/null -w "Docker Hub sync HTTP: %{http_code}\n" -X PATCH "https://hub.docker.com/v2/repositories/andrianey/adguardhomedotdoh/" -H "Authorization: JWT ${DH_TOKEN}" -H "Content-Type: application/json" -d @dh_payload.json
