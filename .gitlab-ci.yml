@@ -1,6 +1,5 @@
 stages:
 - build
-- manifest
 - badge
 - promote
 
@@ -101,19 +100,10 @@ build_auto:
   - if: '$CI_PIPELINE_SOURCE == "trigger"'
   - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
 
-create_manifest:
-  <<: *docker_setup
-  stage: manifest
-  script:
-  - docker buildx imagetools inspect $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
-  rules:
-  - if: '$CI_COMMIT_BRANCH =~ /^(latest|hardened|latest-wolfi|hardened-wolfi)$/'
-  needs: [ "build_auto" ]
-
 update_readme_badge:
   tags:
   - oracle
-  image: alpine:latest
+  image: alpine:3.21
   stage: badge
   before_script:
   - apk add --no-cache git python3 curl
