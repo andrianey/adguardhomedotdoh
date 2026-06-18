@@ -1,8 +1,7 @@
 name: Watch AdGuardHome Upstream
 on:
   schedule:
-    - cron: '0 * * * *'      # Hourly check for stable
-    - cron: '0 */6 * * *'    # Every 6 hours for edge
+    - cron: '0 */3 * * *'    # Every 3 hours for all branches
   workflow_dispatch:
 
 env:
@@ -27,16 +26,6 @@ jobs:
       - name: Get Latest Version and Compare
         id: version_check
         run: |
-          # Skip edge builds unless it's a 6-hour interval or manual trigger
-          CURRENT_HOUR=$(date +%H)
-          if [[ "${{ matrix.type }}" == "edge" ]] && [[ "${{ github.event_name }}" == "schedule" ]]; then
-            if ! (( CURRENT_HOUR % 6 == 0 )); then
-              echo "⏭️ Skipping edge build (not a 6-hour interval: ${CURRENT_HOUR}h)"
-              echo "should_trigger=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-          
           # 1. Fetch Upstream Data (MATCHES YOUR GITLAB LOGIC)
           if [[ "${{ matrix.type }}" == "stable" ]]; then
             UPSTREAM=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
