@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+cleanup() {
+    echo "==> Shutting down services..."
+    [ -n "$DNSPROXY_PID" ] && kill "$DNSPROXY_PID" 2>/dev/null || true
+    [ -n "$UNBOUND_PID" ] && kill "$UNBOUND_PID" 2>/dev/null || true
+    valkey-cli -s /var/run/redis/redis.sock shutdown nosave 2>/dev/null || true
+}
+trap cleanup TERM INT
+
 echo "============================================"
 echo "  AdGuardHome DoT/DoH Stack - Alpine Edition"
 echo "============================================"
@@ -22,7 +30,16 @@ chown adguard:adguard /var/run/redis
 # Run valkey as adguard user, listening on unix socket only
 # Alpine's su-exec takes 'user:group' or just 'user'
 su-exec adguard valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 770 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
-sleep 2
+
+echo "       Waiting for Valkey socket..."
+for i in $(seq 1 10); do
+    if [ -S /var/run/redis/redis.sock ]; then
+        echo "       Valkey socket is ready."
+        break
+    fi
+    sleep 1
+done
+
 if [ ! -S /var/run/redis/redis.sock ]; then
     echo "ERROR: Valkey failed to create socket"
     exit 1
@@ -58,21 +75,35 @@ su-exec adguard /usr/local/bin/dnsproxy \
     $UPSTREAM_ARGS \
     $DNSPROXY_FLAGS &
 DNSPROXY_PID=$!
-sleep 2
-if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
-    echo "ERROR: dnsproxy failed to start"
-    exit 1
-fi
+echo "       Waiting for dnsproxy to be ready..."
+for i in $(seq 1 10); do
+    if nc -z 127.0.0.1 8053 2>/dev/null; then
+        echo "       dnsproxy is ready."
+        break
+    fi
+    if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
+        echo "ERROR: dnsproxy failed to start"
+        exit 1
+    fi
+    sleep 1
+done
 
 # 4. Start Unbound DNS Resolver
 echo "[4/7] Starting Unbound DNS resolver..."
-su-exec adguard /usr/sbin/unbound -d -v &
+su-exec adguard /usr/sbin/unbound -d ${UNBOUND_DEBUG:+-v} &
 UNBOUND_PID=$!
-sleep 2
-if ! kill -0 $UNBOUND_PID 2>/dev/null; then
-    echo "ERROR: Unbound failed to start"
-    exit 1
-fi
+echo "       Waiting for Unbound to be ready..."
+for i in $(seq 1 15); do
+    if nc -z 127.0.0.1 5335 2>/dev/null; then
+        echo "       Unbound is ready."
+        break
+    fi
+    if ! kill -0 $UNBOUND_PID 2>/dev/null; then
+        echo "ERROR: Unbound failed to start"
+        exit 1
+    fi
+    sleep 1
+done
 
 # 5. Show status
 echo "[5/7] Services started:"

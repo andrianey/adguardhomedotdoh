@@ -40,7 +40,7 @@ RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:latest AS builder_unbound
+FROM alpine:3.21 AS builder_unbound
 
 RUN apk add --no-cache \
     build-base \
@@ -71,9 +71,9 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && make install DESTDIR=/tmp/unbound/install
 
 # ============================================
-# Stage 4: Final image with Alpine 3.23
+# Stage 4: Final image with Alpine 3.21
 # ============================================
-FROM alpine:latest
+FROM alpine:3.21
 
 # Set labels for the image
 LABEL maintainer="andrianey"
@@ -92,8 +92,7 @@ RUN apk add --no-cache \
     tzdata \
     libcap \
     su-exec \
-    tini \
-    && rm -rf /var/cache/apk/*
+    tini
 
 # 2. Copy AdGuard Home binary from the official image
 COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
