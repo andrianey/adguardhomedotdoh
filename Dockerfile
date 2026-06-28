@@ -11,9 +11,9 @@
 # ============================================================================
 # Stage 1: Builder stage for AdGuard Home (using Alpine for speed)
 # ============================================================================
-FROM alpine:latest AS builder_adguard
+FROM alpine:3.21 AS builder_adguard
 
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     wget \
     ca-certificates
 
@@ -46,9 +46,9 @@ RUN set -eux; \
 # ============================================
 # Stage 2: Helper stage to download dnsproxy
 # ============================================
-FROM alpine:latest AS builder_helpers
+FROM alpine:3.21 AS builder_helpers
 
-RUN apk update && apk add --no-cache curl jq ca-certificates
+RUN apk add --no-cache curl jq ca-certificates
 
 # Download dnsproxy
 RUN set -eux; \
@@ -85,8 +85,6 @@ RUN set -eux; \
     chmod +x /usr/local/bin/dnsproxy && \
     /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
 
-# Download root.hints for Unbound
-RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 
 # -----------------------------------------------------------------------------
 # Stage 3: Builder stage for Unbound (compiled with Redis cachedb support)
@@ -139,8 +137,8 @@ LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomed
 LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest-Wolfi)"
 LABEL org.opencontainers.image.description="Wolfi-based AdGuard Home with Unbound, dnsproxy, and Valkey"
 
-# Install runtime dependencies from Wolfi repos with retry
-RUN apk update && apk add --no-cache \
+# Install runtime dependencies from Wolfi repos
+RUN apk add --no-cache \
     bash \
     ca-certificates \
     openssl \
@@ -172,7 +170,7 @@ COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
 
 # Copy root.hints for Unbound
-COPY --from=builder_helpers /tmp/root.hints /var/lib/unbound/root.hints
+COPY unbound/root.hints /var/lib/unbound/root.hints
 
 # Copy Unbound from builder_unbound
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound /usr/sbin/unbound
