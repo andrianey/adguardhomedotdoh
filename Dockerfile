@@ -98,7 +98,8 @@ RUN apk add --no-cache \
     expat \
     ca-certificates \
     tzdata \
-    bash
+    bash \
+    netcat-openbsd
 
 # 2. Copy AdGuard Home binary from the official image
 COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
