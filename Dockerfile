@@ -139,7 +139,8 @@ RUN set -eux; \
       libcap-utils \
       libexpat1 \
       shadow \
-      su-exec; \
+      su-exec \
+      netcat-openbsd; \
     apk audit --update-cache --no-cache --repository https://packages.wolfi.dev/os \
       | tee /tmp/apk-audit.log \
       || true

@@ -10,9 +10,14 @@ services:
       adguard_net:
         ipv4_address: 172.172.0.2
 
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z -w1 127.0.0.1 53 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
     environment:
-      - PUID=1000
-      - PGID=1000
       - TZ=Asia/Jakarta # Set your timezone
 
     ports:
