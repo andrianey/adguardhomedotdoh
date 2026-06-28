@@ -6,9 +6,9 @@ FROM adguard/adguardhome:latest AS adguard-source
 # ============================================
 # Stage 2: Helper stage to download dnsproxy
 # ============================================
-FROM alpine:latest AS builder_helpers
+FROM alpine:3.21 AS builder_helpers
 
-RUN apk update && apk add --no-cache curl jq ca-certificates
+RUN apk add --no-cache curl jq ca-certificates
 
 # Download dnsproxy
 RUN set -eux; \
@@ -49,7 +49,7 @@ RUN set -eux; \
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:latest AS builder_unbound
+FROM alpine:3.21 AS builder_unbound
 
 RUN apk add --no-cache \
     build-base \
@@ -79,9 +79,9 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && make install DESTDIR=/tmp/unbound/install
 
 # ============================================
-# Stage 4: Final image with Alpine Latest
+# Stage 4: Final image with Alpine 3.21
 # ============================================
-FROM alpine:latest
+FROM alpine:3.21
 
 # Set labels for the image
 LABEL maintainer="andrianey"
@@ -91,15 +91,14 @@ LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
 LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
 
 # 1. Install dependencies
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     libevent \
     hiredis \
     valkey \
     expat \
     ca-certificates \
     tzdata \
-    bash \
-    && rm -rf /var/cache/apk/*
+    bash
 
 # 2. Copy AdGuard Home binary from the official image
 COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
@@ -118,15 +117,11 @@ COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sb
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
 COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/lib/
-# Copy required libs
-COPY --from=builder_unbound /usr/lib/libhiredis.so* /usr/lib/
-COPY --from=builder_unbound /usr/lib/libevent* /usr/lib/
-
 RUN mkdir -p /var/lib/unbound/ && \
-    wget -O /var/lib/unbound/root.hints https://www.internic.net/domain/named.root && \
     /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
 
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
+COPY unbound/root.hints /var/lib/unbound/root.hints
 
 # 6. Setup Cron & Permissions
 COPY crontab/root /tmp/crontab_root

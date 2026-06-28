@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+cleanup() {
+    echo "==> Shutting down services..."
+    [ -n "$DNSPROXY_PID" ] && kill "$DNSPROXY_PID" 2>/dev/null || true
+    [ -n "$UNBOUND_PID" ] && kill "$UNBOUND_PID" 2>/dev/null || true
+    valkey-cli -s /var/run/redis/redis.sock shutdown nosave 2>/dev/null || true
+}
+trap cleanup TERM INT
+
 echo "============================================"
 echo "  AdGuardHome DoT/DoH Stack"
 echo "============================================"
@@ -14,7 +22,6 @@ chmod 700 /opt/adguardhome/work
 echo "[2/7] Starting Valkey (Redis compatible)..."
 mkdir -p /var/run/redis
 valkey-server --unixsocket /var/run/redis/redis.sock --unixsocketperm 777 --port 0 --save "" --appendonly no --maxmemory 100mb --maxmemory-policy allkeys-lru --daemonize yes
-VALKEY_PID=$!
 
 # Wait for valkey socket to be ready
 echo "       Waiting for Valkey socket..."
@@ -42,17 +49,21 @@ if [ ! -f /var/lib/unbound/root.key ]; then
     echo "       Initializing DNSSEC root key..."
     /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
 fi
-# Run with -vv for verbose output to see Redis/Valkey connection
 echo "       Starting Unbound with cachedb (Valkey backend)..."
-/usr/sbin/unbound -vv -d &
+/usr/sbin/unbound ${UNBOUND_DEBUG:+-vv} -d &
 UNBOUND_PID=$!
-# Wait a bit longer for Unbound to initialize and connect to Valkey
-sleep 2
-if ! kill -0 $UNBOUND_PID 2>/dev/null; then
-    echo "ERROR: Unbound failed to start"
-    exit 1
-fi
-echo "       Unbound started (check logs above for Valkey connection)"
+echo "       Waiting for Unbound to be ready..."
+for i in $(seq 1 15); do
+    if nc -z 127.0.0.1 5335 2>/dev/null; then
+        echo "       Unbound is ready."
+        break
+    fi
+    if ! kill -0 $UNBOUND_PID 2>/dev/null; then
+        echo "ERROR: Unbound failed to start"
+        exit 1
+    fi
+    sleep 1
+done
 
 # 5. Run dnsproxy (DoH/DoT upstream)
 echo "[5/7] Starting dnsproxy (DoH/DoT upstream)..."
@@ -78,11 +89,18 @@ echo "       Configured Upstreams: $DNSPROXY_UPSTREAM"
     $UPSTREAM_ARGS \
     $DNSPROXY_FLAGS &
 DNSPROXY_PID=$!
-sleep 2
-if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
-    echo "ERROR: dnsproxy failed to start"
-    exit 1
-fi
+echo "       Waiting for dnsproxy to be ready..."
+for i in $(seq 1 10); do
+    if nc -z 127.0.0.1 8053 2>/dev/null; then
+        echo "       dnsproxy is ready."
+        break
+    fi
+    if ! kill -0 $DNSPROXY_PID 2>/dev/null; then
+        echo "ERROR: dnsproxy failed to start"
+        exit 1
+    fi
+    sleep 1
+done
 
 # Show service status
 echo "[6/7] Services started:"
@@ -97,5 +115,3 @@ echo ""
 # Menghapus flag -h 0.0.0.0 karena AdGuard biasanya baca binding dari yaml.
 # Jika tetap ingin dipaksa, pastikan port 53 tidak bentrok dengan Unbound.
 /opt/adguardhome/AdGuardHome --no-check-update -c /opt/adguardhome/conf/AdGuardHome.yaml -w /opt/adguardhome/work
-
-exec "$@"
