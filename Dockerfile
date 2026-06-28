@@ -150,7 +150,8 @@ RUN apk add --no-cache \
     libcap-utils \
     libexpat1 \
     shadow \
-    su-exec
+    su-exec \
+    netcat-openbsd
 
 # Create necessary directories and device nodes
 RUN mkdir -p /opt/adguardhome/conf \
