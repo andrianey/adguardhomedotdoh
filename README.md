@@ -48,19 +48,24 @@ services:
     container_name: adguardhome
     hostname: adguardhome
     restart: unless-stopped
-    
+
     networks:
       adguard_net:
         ipv4_address: 172.172.0.2
-    
+
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-w1", "127.0.0.1", "53"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
     environment:
       - TZ=Asia/Jakarta # Set your timezone
-      - PUID=1000       # User ID for file ownership
-      - PGID=1000       # Group ID for file ownership
       # Optional: Custom DNS Proxy Settings
-      # - DNSPROXY_UPSTREAM=tls://1.1.1.1 tls://1.0.0.1 https://1.1.1.1/dns-query https://1.0.0.1/dns-query tls://[2606:4700:4700::1111] tls://[2606:4700:4700::1001] https://[2606:4700:4700::1111]/dns-query https://[2606:4700:4700::1001]/dns-query tls://9.9.9.9 tls://149.112.112.112 tls://[2620:fe::fe] tls://[2620:fe::9] https://dns9.quad9.net/dns-query
-      # - DNSPROXY_FLAGS=--upstream-mode=parallel --cache --cache-optimistic --cache-size=4194304 --cache-min-ttl=600
-      
+      # - DNSPROXY_UPSTREAM=tls://1.1.1.1 tls://1.0.0.1 https://1.1.1.1/dns-query https://1.0.0.1/dns-query # Custom Upstreams
+      # - DNSPROXY_FLAGS=--upstream-mode=parallel --cache --cache-optimistic --cache-size=4194304 --cache-min-ttl=600 # Custom Flags
+
     ports:
       # DNS
       - "53:53/tcp"
@@ -75,15 +80,14 @@ services:
       # DHCP
       - "67:67/udp"
       - "68:68/udp"
-    
+
     volumes:
       # Core AdGuard Home Data for persistent configuration
       - /opt/adguardhome/conf:/opt/adguardhome/conf
       - /opt/adguardhome/work:/opt/adguardhome/work
-
-      # Mount custom SSL certificates to enable encryption
+      # Mount custom SSL certificates to resolve over public address https://localhost/dns-query
       # - /opt/adguardhome/certs:/opt/certs
-      
+
       # Optional: Custom Config Overrides
       # - /opt/adguardhome/unbound/unbound.conf:/etc/unbound/unbound.conf
 
