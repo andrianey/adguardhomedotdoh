@@ -11,7 +11,7 @@
 # ============================================================================
 # Stage 1: Builder stage for AdGuard Home (using Alpine for speed)
 # ============================================================================
-FROM alpine:3.21 AS builder_adguard
+FROM alpine:latest AS builder_adguard
 
 RUN apk add --no-cache \
     wget \
@@ -46,7 +46,7 @@ RUN set -eux; \
 # ============================================
 # Stage 2: Helper stage to download dnsproxy
 # ============================================
-FROM alpine:3.21 AS builder_helpers
+FROM alpine:latest AS builder_helpers
 
 RUN apk add --no-cache curl jq ca-certificates
 
