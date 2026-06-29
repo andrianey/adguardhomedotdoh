@@ -23,6 +23,15 @@ chown -R adguard:adguard /var/lib/unbound
 chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
+# 1.2. Initialize DNSSEC root trust anchor
+if [ ! -f /var/lib/unbound/root.key ]; then
+    echo "       Initializing DNSSEC root key..."
+    if ! LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key 2>&1; then
+        echo "WARNING: unbound-anchor failed — DNSSEC validation may not work on first start"
+    fi
+    chown adguard:adguard /var/lib/unbound/root.key 2>/dev/null || true
+fi
+
 # 1.5. Start Redis (RAM Cache) using Valkey
 echo "[2/7] Starting Valkey (Redis compatible)..."
 mkdir -p /var/run/redis
