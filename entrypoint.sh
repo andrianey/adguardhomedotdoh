@@ -23,13 +23,6 @@ chown -R adguard:adguard /var/lib/unbound
 chown -R adguard:adguard /var/log
 chmod 700 /opt/adguardhome/work
 
-# 1.2. Initialize unbound anchor for DNSSEC (Required by Stubby)
-if [ ! -f /var/lib/unbound/root.key ]; then
-    echo "       Initializing DNSSEC root key..."
-    LD_LIBRARY_PATH="/usr/local/lib" /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
-    chown adguard:adguard /var/lib/unbound/root.key || true
-fi
-
 # 1.5. Start Redis (RAM Cache) using Valkey
 echo "[2/7] Starting Valkey (Redis compatible)..."
 mkdir -p /var/run/redis
