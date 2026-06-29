@@ -53,7 +53,7 @@ services:
       adguard_net:
         ipv4_address: 172.172.0.2
 
-    healthcheck:
+    healthcheck: # Optional
       test: ["CMD", "nc", "-z", "-w1", "127.0.0.1", "53"]
       interval: 30s
       timeout: 5s
