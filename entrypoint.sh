@@ -45,10 +45,6 @@ echo "[3/7] Starting cron service..."
 # 4. Run Unbound
 echo "[4/7] Starting Unbound DNS resolver..."
 # Pastikan di unbound.conf kamu port-nya BUKAN 53 (misal 5335)
-if [ ! -f /var/lib/unbound/root.key ]; then
-    echo "       Initializing DNSSEC root key..."
-    /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key || true
-fi
 echo "       Starting Unbound with cachedb (Valkey backend)..."
 /usr/sbin/unbound ${UNBOUND_DEBUG:+-vv} -d &
 UNBOUND_PID=$!
