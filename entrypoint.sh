@@ -40,8 +40,14 @@ if [ ! -S /var/run/redis/redis.sock ]; then
     exit 1
 fi
 
-# 3. Start Unbound (DNS resolver with Valkey caching)
+# 3. Start Unbound (DNS resolver with DNSSEC validation + Valkey caching)
 echo "[2/6] Starting Unbound DNS resolver..."
+if [ ! -f /var/lib/unbound/root.key ]; then
+    echo "       Initializing DNSSEC root key..."
+    if ! /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key 2>&1; then
+        echo "WARNING: unbound-anchor failed — DNSSEC validation may not work on first start"
+    fi
+fi
 # Run unbound in background
 /usr/sbin/unbound -d ${UNBOUND_DEBUG:+-v} &
 UNBOUND_PID=$!
