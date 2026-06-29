@@ -40,7 +40,7 @@ RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:3.24 AS builder_unbound
+FROM alpine:latest AS builder_unbound
 
 RUN apk add --no-cache \
     build-base \
@@ -71,9 +71,9 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
     && make install DESTDIR=/tmp/unbound/install
 
 # ============================================
-# Stage 4: Final image with Alpine 3.24
+# Stage 4: Final image (Alpine latest)
 # ============================================
-FROM alpine:3.24
+FROM alpine:latest
 
 # Set labels for the image
 LABEL maintainer="andrianey"
