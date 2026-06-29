@@ -114,4 +114,7 @@ echo "============================================"
 echo ""
 # Menghapus flag -h 0.0.0.0 karena AdGuard biasanya baca binding dari yaml.
 # Jika tetap ingin dipaksa, pastikan port 53 tidak bentrok dengan Unbound.
-/opt/adguardhome/AdGuardHome --no-check-update -c /opt/adguardhome/conf/AdGuardHome.yaml -w /opt/adguardhome/work
+exec /opt/adguardhome/AdGuardHome \
+    --no-check-update \
+    -c /opt/adguardhome/conf/AdGuardHome.yaml \
+    -w /opt/adguardhome/work
