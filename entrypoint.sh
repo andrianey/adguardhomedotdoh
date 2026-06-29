@@ -45,6 +45,14 @@ if [ ! -S /var/run/redis/redis.sock ]; then
     exit 1
 fi
 
+# 2.5. Initialize DNSSEC root trust anchor
+if [ ! -f /var/lib/unbound/root.key ]; then
+    echo "       Initializing DNSSEC root key..."
+    if ! su-exec adguard /usr/sbin/unbound-anchor -4 -r /var/lib/unbound/root.hints -a /var/lib/unbound/root.key 2>&1; then
+        echo "WARNING: unbound-anchor failed — DNSSEC validation may not work on first start"
+    fi
+fi
+
 # 3. Start dnsproxy (DoH/DoT upstream)
 echo "[3/7] Starting dnsproxy (DoH/DoT upstream)..."
 # Default Upstreams (Cloudflare) if not provided
