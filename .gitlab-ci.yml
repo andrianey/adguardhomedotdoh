@@ -5,16 +5,18 @@ stages:
 
 workflow:
   rules:
+  - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    when: always
   - if: '$CI_COMMIT_MESSAGE =~ /\[skip ci\]/i'
     when: never
-  - if: '$CI_PIPELINE_SOURCE == "trigger" && $UPSTREAM_SYNC == "true"'
-    when: always
-  - changes:
+  - if: '$CI_PIPELINE_SOURCE == "push"'
+    changes:
     - Dockerfile
     - entrypoint.sh
     - unbound/**/*
     - crontab/**/*
     - .gitlab-ci.yml
+    when: always
   - when: never
 
 variables:
