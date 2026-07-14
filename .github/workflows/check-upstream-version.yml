@@ -15,9 +15,13 @@ jobs:
       matrix:
         include:
           - type: "stable"
-            branches: ["latest", "latest-wolfi"]
+            branch: "latest"
+          - type: "stable"
+            branch: "latest-wolfi"
           - type: "edge"
-            branches: ["hardened", "hardened-wolfi"]
+            branch: "hardened"
+          - type: "edge"
+            branch: "hardened-wolfi"
 
     steps:
       - name: Checkout Code
@@ -38,7 +42,7 @@ jobs:
           fi
 
           # 2. Extract CLEAN version from README.md using regex (not column position)
-          BRANCH_NAME="${{ matrix.branches[0] }}"
+          BRANCH_NAME="${{ matrix.branch }}"
           RAW_ROW=$(grep "| \`$BRANCH_NAME\` |" README.md)
           
           # Match the AdGuardHome version badge pattern: ![vX.Y.Z...](...)
@@ -53,7 +57,7 @@ jobs:
             echo "✅ Exact match. Skipping build for $BRANCH_NAME."
             echo "should_trigger=false" >> $GITHUB_OUTPUT
           else
-            echo "🚀 Mismatch detected! Upstream ($UPSTREAM) != README ($CURRENT). Triggering GitLab..."
+            echo "🚀 Mismatch detected! Upstream ($UPSTREAM) != README ($CURRENT). Triggering GitLab branch $BRANCH_NAME..."
             echo "should_trigger=true" >> $GITHUB_OUTPUT
           fi
 
@@ -64,27 +68,21 @@ jobs:
           GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
           GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
         run: |
-          FAILED_BRANCHES=""
-          for branch in ${{ join(matrix.branches, ' ') }}; do
-            echo "==> Triggering GitLab branch: $branch"
-            BODY=$(mktemp)
-            RESPONSE=$(curl -s -o "$BODY" -w "%{http_code}" --request POST \
-              --form token="$GITLAB_TRIGGER_TOKEN" \
-              --form ref="$branch" \
-              --form "variables[UPSTREAM_SYNC]=true" \
-              "https://gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/trigger/pipeline")
-            
-            if [ "$RESPONSE" = "201" ]; then
-              echo "✅ Success: Pipeline created for $branch"
-            else
-              echo "❌ Failed: GitLab returned HTTP $RESPONSE"
-              echo "Response body: $(cat "$BODY")"
-              FAILED_BRANCHES="$FAILED_BRANCHES $branch"
-            fi
-            rm -f "$BODY"
-          done
+          BRANCH="${{ matrix.branch }}"
+          echo "==> Triggering GitLab branch: $BRANCH"
+          BODY=$(mktemp)
+          RESPONSE=$(curl -s -o "$BODY" -w "%{http_code}" --request POST \
+            --form token="$GITLAB_TRIGGER_TOKEN" \
+            --form ref="$BRANCH" \
+            --form "variables[UPSTREAM_SYNC]=true" \
+            "https://gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/trigger/pipeline")
           
-          if [ -n "$FAILED_BRANCHES" ]; then
-            echo "❌ Failed to trigger branches:$FAILED_BRANCHES"
+          if [ "$RESPONSE" = "201" ]; then
+            echo "✅ Success: Pipeline created for $BRANCH"
+          else
+            echo "❌ Failed: GitLab returned HTTP $RESPONSE"
+            echo "Response body: $(cat "$BODY")"
+            rm -f "$BODY"
             exit 1
           fi
+          rm -f "$BODY"
