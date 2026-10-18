@@ -64,7 +64,12 @@ build_auto:
     fi
 
     echo "==> Inspecting versions..."
-    docker buildx build --platform linux/amd64 --provenance=false --pull --load -t inspect-image .
+    mkdir -p "$BUILDX_CACHE_DIR"
+    docker buildx build --platform linux/amd64 --provenance=false --pull --load \
+      --cache-from type=local,src=$BUILDX_CACHE_DIR \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      --build-arg APK_REFRESH=$(date +%G-%V) \
+      -t inspect-image .
 
     AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
@@ -88,6 +93,7 @@ build_auto:
     docker buildx build \
       --platform "$PLATFORMS" \
       --provenance=false \
+      --build-arg APK_REFRESH=$(date +%G-%V) \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
