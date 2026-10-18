@@ -13,7 +13,10 @@ FROM adguard/adguardhome:edge AS adguard_source
 # -----------------------------------------------------------------------------
 # Stage 2: Build dnsproxy from source (Fixes CVEs in deps and Go stdlib)
 # -----------------------------------------------------------------------------
-FROM golang:1.26-alpine AS builder_dnsproxy
+FROM golang:1.27-alpine AS builder_dnsproxy
+
+# Allow the toolchain to auto-upgrade if upstream go.mod requires a newer Go
+ENV GOTOOLCHAIN=auto
 
 RUN apk add --no-cache git
 
