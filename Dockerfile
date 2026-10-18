@@ -78,6 +78,14 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 # ============================================
 FROM alpine:3.24
 
+# The alpine:3.24 tag is a frozen snapshot (built 2026-09-17) that ships
+# zlib 1.3.2-r0, while the v3.24 repository now has 1.3.2-r1, which fixes
+# CVE-2026-85091. APK_REFRESH is purely a cache key for this RUN layer:
+# BuildKit caches a RUN layer by its inputs, so an unchanged value is a
+# cache hit (no rebuild) and a changed value forces the upgrade to re-run.
+ARG APK_REFRESH=none
+RUN apk upgrade --no-cache
+
 # Set labels for the image
 LABEL maintainer="andrianey"
 LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
