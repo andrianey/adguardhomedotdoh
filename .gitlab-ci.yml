@@ -68,6 +68,7 @@ build_auto:
     docker buildx build \
       --platform "$PLATFORMS" \
       --provenance=false \
+      --build-arg APK_REFRESH=$(date +%G-%V) \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
