@@ -30,14 +30,20 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go get github.com/quic-go/quic-go@latest && go mod tidy
 # Extract version info from git and write to a file for label injection
+# Fallbacks keep the captured files non-empty even if git metadata is unavailable.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    VERSION=$(git describe --tags --always --dirty) && \
-    REVISION=$(git rev-parse --short HEAD) && \
-    BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
-    COMMIT_TIME=$(git log -1 --format=%ct) && \
-    echo "${VERSION}" > /tmp/dnsproxy_version && \
-    echo "${REVISION}" > /tmp/dnsproxy_revision && \
+    VERSION=$(git describe --tags --always --dirty 2>/dev/null || true); \
+    [ -n "$VERSION" ] || VERSION=$(git rev-parse --short HEAD 2>/dev/null || true); \
+    [ -n "$VERSION" ] || VERSION="unknown"; \
+    REVISION=$(git rev-parse --short HEAD 2>/dev/null || true); \
+    [ -n "$REVISION" ] || REVISION="unknown"; \
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true); \
+    [ -n "$BRANCH" ] || BRANCH="unknown"; \
+    COMMIT_TIME=$(git log -1 --format=%ct 2>/dev/null || true); \
+    [ -n "$COMMIT_TIME" ] || COMMIT_TIME="0"; \
+    printf '%s\n' "$VERSION" > /tmp/dnsproxy_version; \
+    printf '%s\n' "$REVISION" > /tmp/dnsproxy_revision; \
     go build -trimpath -v -ldflags "-s -w \
     -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
@@ -165,6 +171,15 @@ RUN mkdir -p /opt/adguardhome/conf \
 # Copy AdGuard Home from source stage
 COPY --from=adguard_source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
 
+# Capture AdGuard Home version into a file for CI/badge metadata (must never fail the build)
+RUN AGH_OUT=$(/opt/adguardhome/AdGuardHome --version 2>&1 || true); \
+    AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -m1 -E '[^[:space:]]' || true); \
+    [ -n "$AGH_VER" ] || AGH_VER="unknown"; \
+    printf '%s\n' "$AGH_VER" > /tmp/adguardhome_version; \
+    echo "AdGuardHome version: $AGH_VER"
+
 # Copy dnsproxy from builder_dnsproxy
 COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 # Copy version files from builder stages
@@ -205,8 +220,17 @@ RUN chown -R adguard:adguard /opt/adguardhome \
     && chmod 755 /usr/local/bin/dnsproxy \
     && setcap 'cap_net_bind_service=+ep' /opt/adguardhome/AdGuardHome \
     && setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound \
-    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy && \
-    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
+    && setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
+
+# Capture Unbound version (progressive fallbacks; keeps the builder-captured value if the binary check fails)
+RUN UNBOUND_OUT=$(LD_LIBRARY_PATH=/usr/local/lib /usr/sbin/unbound -V 2>&1 || true); \
+    UNBOUND_VER=$(printf '%s\n' "$UNBOUND_OUT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true); \
+    [ -n "$UNBOUND_VER" ] || UNBOUND_VER=$(printf '%s\n' "$UNBOUND_OUT" | grep -m1 -iE 'version' | grep -oE '[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$UNBOUND_VER" ] || UNBOUND_VER=$(printf '%s\n' "$UNBOUND_OUT" | grep -m1 -E '[^[:space:]]' || true); \
+    [ -n "$UNBOUND_VER" ] || UNBOUND_VER=$(tr -d '\n\r ' < /tmp/unbound_version 2>/dev/null || true); \
+    [ -n "$UNBOUND_VER" ] || UNBOUND_VER="unknown"; \
+    printf '%s\n' "$UNBOUND_VER" > /tmp/unbound_version; \
+    echo "Unbound version: $UNBOUND_VER"
 
 # Expose ports
 # DNS (TCP/UDP)

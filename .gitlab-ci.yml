@@ -71,7 +71,13 @@ build_auto:
       --build-arg APK_REFRESH=$(date +%G-%V) \
       -t inspect-image .
 
-    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
+    AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | tr -d '\n\r ' || true)
+    if [ -z "$AGH_VER" ] || [ "$AGH_VER" = "unknown" ]; then
+      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+    if [ -z "$AGH_VER" ]; then
+      AGH_VER="edge"
+    fi
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
     UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
