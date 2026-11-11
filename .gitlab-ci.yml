@@ -77,7 +77,11 @@ build_auto:
     echo "==> Inspecting versions from pushed image..."
     docker pull --platform linux/amd64 $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
 
-    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
+    AGH_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/adguardhome_version 2>/dev/null | tr -d '\n\r ' || true)
+    if [ -z "$AGH_VER" ]; then
+      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+    [ -z "$AGH_VER" ] && AGH_VER="edge"
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
 
     UNBOUND_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)

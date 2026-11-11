@@ -8,6 +8,10 @@ FROM adguard/adguardhome:latest AS adguard-source
 # ============================================
 FROM alpine:3.24 AS builder_helpers
 
+# Explicitly upgrade musl to pick up the CVE fix (>= 1.2.6-r6). This is a
+# separate layer so it still runs even if other apk layers are cached.
+RUN apk add --no-cache --upgrade musl
+
 RUN apk add --no-cache curl jq ca-certificates
 
 # Download dnsproxy
@@ -42,14 +46,34 @@ RUN set -eux; \
     tar -xzf /tmp/dnsproxy.tar.gz -C /tmp; \
     # Find binary regardless of directory structure
     find /tmp -name dnsproxy -type f -exec mv {} /usr/local/bin/dnsproxy \; && \
-    chmod +x /usr/local/bin/dnsproxy && \
-    /usr/local/bin/dnsproxy --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 > /tmp/dnsproxy_version || echo "unknown" > /tmp/dnsproxy_version
+    chmod +x /usr/local/bin/dnsproxy
+
+# Record the dnsproxy version for CI/badges. The output format varies between
+# releases, so fall back progressively and only use "unknown" as a last resort.
+RUN set -eux; \
+    if ! /usr/local/bin/dnsproxy --version > /tmp/dnsproxy_version_raw 2>&1; then \
+    echo "WARNING: dnsproxy --version failed"; \
+    fi; \
+    VER=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' /tmp/dnsproxy_version_raw | head -n 1 || true); \
+    if [ -z "$VER" ]; then \
+    VER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' /tmp/dnsproxy_version_raw | head -n 1 || true); \
+    fi; \
+    if [ -z "$VER" ]; then \
+    VER=$(head -n 1 /tmp/dnsproxy_version_raw | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//' || true); \
+    fi; \
+    if [ -z "$VER" ]; then VER="unknown"; fi; \
+    printf '%s\n' "$VER" > /tmp/dnsproxy_version; \
+    rm -f /tmp/dnsproxy_version_raw
 
 
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
 FROM alpine:3.24 AS builder_unbound
+
+# Explicitly upgrade musl to pick up the CVE fix (>= 1.2.6-r6). This is a
+# separate layer so it still runs even if other apk layers are cached.
+RUN apk add --no-cache --upgrade musl
 
 RUN apk add --no-cache \
     build-base \
@@ -90,6 +114,9 @@ FROM alpine:3.24
 # cache hit (no rebuild) and a changed value forces the upgrade to re-run.
 ARG APK_REFRESH=none
 RUN apk upgrade --no-cache
+# Explicit musl upgrade to pick up the CVE fix (>= 1.2.6-r6); kept in its own
+# layer so it is not skipped when the apk upgrade layer is reused from cache.
+RUN apk add --no-cache --upgrade musl
 
 # Set labels for the image
 LABEL maintainer="andrianey"
@@ -112,6 +139,22 @@ RUN apk add --no-cache \
 # 2. Copy AdGuard Home binary from the official image
 COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
 
+# Record the AdGuard Home version for CI/badges, with progressive fallbacks.
+RUN set -eux; \
+    if ! /opt/adguardhome/AdGuardHome --version > /tmp/adguardhome_version_raw 2>&1; then \
+    echo "WARNING: AdGuardHome --version failed"; \
+    fi; \
+    VER=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' /tmp/adguardhome_version_raw | head -n 1 || true); \
+    if [ -z "$VER" ]; then \
+    VER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' /tmp/adguardhome_version_raw | head -n 1 || true); \
+    fi; \
+    if [ -z "$VER" ]; then \
+    VER=$(head -n 1 /tmp/adguardhome_version_raw | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//' || true); \
+    fi; \
+    if [ -z "$VER" ]; then VER="unknown"; fi; \
+    printf '%s\n' "$VER" > /tmp/adguardhome_version; \
+    rm -f /tmp/adguardhome_version_raw
+
 # 3. Copy dnsproxy from helpers
 COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
@@ -126,8 +169,21 @@ COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-anchor /usr/sb
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-control /usr/sbin/unbound-control
 COPY --from=builder_unbound /tmp/unbound/install/usr/sbin/unbound-checkconf /usr/sbin/unbound-checkconf
 COPY --from=builder_unbound /tmp/unbound/install/usr/lib/libunbound.so* /usr/lib/
-RUN mkdir -p /var/lib/unbound/ && \
-    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
+RUN set -eux; \
+    mkdir -p /var/lib/unbound/; \
+    if ! /usr/sbin/unbound -V > /tmp/unbound_version_raw 2>&1; then \
+    echo "WARNING: unbound -V failed"; \
+    fi; \
+    VER=$(grep -iE '^[[:space:]]*version[[:space:]]+v?[0-9]+(\.[0-9]+)+' /tmp/unbound_version_raw | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n 1 || true); \
+    if [ -z "$VER" ]; then \
+    VER=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' /tmp/unbound_version_raw | head -n 1 || true); \
+    fi; \
+    if [ -z "$VER" ]; then \
+    VER=$(head -n 1 /tmp/unbound_version_raw | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//' || true); \
+    fi; \
+    if [ -z "$VER" ]; then VER="unknown"; fi; \
+    printf '%s\n' "$VER" > /tmp/unbound_version; \
+    rm -f /tmp/unbound_version_raw
 
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 COPY unbound/root.hints /var/lib/unbound/root.hints
