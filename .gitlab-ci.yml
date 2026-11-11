@@ -71,14 +71,40 @@ build_auto:
       --build-arg APK_REFRESH=$(date +%G-%V) \
       -t inspect-image .
 
-    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
-    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
+    # Each probe is captured with `|| true` and then checked explicitly.
+    # grep/head/tr exit 0 even on an empty match, so a pipeline fallback
+    # (`... | grep ... || echo fallback`) would never fire and an empty value
+    # would reach versions.env and the README badge.
+    AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n 1 || true)
+    [ -n "$AGH_VER" ] || AGH_VER="edge"
 
-    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
-    if [ -z "$UNBOUND_VER" ]; then
-      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-      [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
+    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    if [ -z "$DNSPROXY_VER" ]; then
+      DNSPROXY_VER=$(docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -n 1 || true)
     fi
+    [ -n "$DNSPROXY_VER" ] || DNSPROXY_VER="unknown"
+
+    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    if [ -z "$UNBOUND_VER" ]; then
+      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+    fi
+    [ -n "$UNBOUND_VER" ] || UNBOUND_VER="unknown"
+
+    # Shields.io badges and the dotenv artifact only tolerate this charset;
+    # anything else would produce a broken badge instead of failing the job.
+    valid_version() { # $1=name $2=value $3=fallback
+      case "$2" in
+        ""|*[!A-Za-z0-9._+-]*)
+          echo "WARN: $1 probe returned an unusable value: '$2'" >&2
+          printf '%s' "$3"
+          ;;
+        *) printf '%s' "$2" ;;
+      esac
+    }
+    AGH_VER=$(valid_version AGH_VER "$AGH_VER" edge)
+    UNBOUND_VER=$(valid_version UNBOUND_VER "$UNBOUND_VER" unknown)
+    DNSPROXY_VER=$(valid_version DNSPROXY_VER "$DNSPROXY_VER" unknown)
+    echo "==> Detected versions: adguardhome=$AGH_VER unbound=$UNBOUND_VER dnsproxy=$DNSPROXY_VER"
 
     docker rmi inspect-image 2>/dev/null || true
 
@@ -132,7 +158,13 @@ update_readme_badge:
     import sys, re
     def run():
         branch, agh, ub, dp = sys.argv[1:]
-        def encode(v): return v.replace('_', '__').replace('-', '--').replace(' ', '_')
+        from urllib.parse import quote
+        for name, v in (('adguardhome', agh), ('unbound', ub), ('dnsproxy', dp)):
+            if not re.fullmatch(r'[A-Za-z0-9_+.-]+', v):
+                sys.exit(f"ERROR: invalid {name} version: {v!r}")
+        # shields.io escapes '-' and '_' by doubling them; percent-encode
+        # everything else (slashes, colons, ...) so the badge URL stays valid.
+        def encode(v): return quote(v.replace('_', '__').replace('-', '--').replace(' ', '_'), safe='')
         def badge(v, c):
             url = f"https://img.shields.io/badge/-{encode(v)}-{c}"
             return f"![{v}]({url})"
@@ -173,7 +205,7 @@ update_readme_badge:
     for i in 1 2 3; do
       git fetch origin latest
       git checkout -B latest origin/latest
-      python3 update_readme.py "$TARGET_ROW" "$AGH_VER" "$UNBOUND_VER" "$DNSPROXY_VER"
+      python3 update_readme.py "$TARGET_ROW" "${AGH_VER:-edge}" "${UNBOUND_VER:-unknown}" "${DNSPROXY_VER:-unknown}"
       git add README.md
       if git diff-index --quiet HEAD -- README.md; then
         echo "==> README already up to date, skipping push."

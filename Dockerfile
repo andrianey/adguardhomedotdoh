@@ -14,10 +14,21 @@ ENV GOTOOLCHAIN=auto
 RUN apk add --no-cache git
 
 WORKDIR /src/dnsproxy
-# Clone latest source and fetch all tags
+# Clone latest source and fetch all tags.
+# Capture version metadata here, before go get/go mod tidy touch go.mod and
+# go.sum: those edits dirty the work tree, which would append "-dirty" to
+# git describe and leak into the version reported by the image and the README.
 RUN git clone https://github.com/AdguardTeam/dnsproxy.git . && \
     git fetch --tags && \
-    git pull origin master
+    git pull origin master && \
+    git describe --tags --always > /tmp/dnsproxy_version && \
+    git rev-parse --short HEAD > /tmp/dnsproxy_revision && \
+    git rev-parse --abbrev-ref HEAD > /tmp/dnsproxy_branch && \
+    git log -1 --format=%ct > /tmp/dnsproxy_committime && \
+    [ -s /tmp/dnsproxy_version ] && \
+    [ -s /tmp/dnsproxy_revision ] && \
+    [ -s /tmp/dnsproxy_branch ] && \
+    [ -s /tmp/dnsproxy_committime ]
 # Force update quic-go to fix CVE-2025-64702
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -25,17 +36,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Extract version info from git and build with embedded metadata
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    VERSION=$(git describe --tags --always --dirty) && \
-    REVISION=$(git rev-parse --short HEAD) && \
-    BRANCH=$(git rev-parse --abbrev-ref HEAD) && \
-    COMMIT_TIME=$(git log -1 --format=%ct) && \
+    VERSION=$(cat /tmp/dnsproxy_version) && \
+    REVISION=$(cat /tmp/dnsproxy_revision) && \
+    BRANCH=$(cat /tmp/dnsproxy_branch) && \
+    COMMIT_TIME=$(cat /tmp/dnsproxy_committime) && \
     go build -trimpath -v -ldflags "-s -w \
     -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.branch=${BRANCH} \
     -X github.com/AdguardTeam/dnsproxy/internal/version.committime=${COMMIT_TIME}" \
-    -o /usr/local/bin/dnsproxy . && \
-    echo "$VERSION" > /tmp/dnsproxy_version
+    -o /usr/local/bin/dnsproxy .
 
 # Download root.hints for Unbound
 RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
@@ -79,12 +89,23 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 FROM alpine:3.24
 
 # The alpine:3.24 tag is a frozen snapshot (built 2026-09-17) that ships
-# zlib 1.3.2-r0, while the v3.24 repository now has 1.3.2-r1, which fixes
-# CVE-2026-85091. APK_REFRESH is purely a cache key for this RUN layer:
-# BuildKit caches a RUN layer by its inputs, so an unchanged value is a
-# cache hit (no rebuild) and a changed value forces the upgrade to re-run.
+# zlib 1.3.2-r0 and musl 1.2.6-r3, while the v3.24 repository now has
+# zlib 1.3.2-r1 (CVE-2026-85091) and musl 1.2.6-r6 (CVE-2026-107891).
+# APK_REFRESH is purely a cache key for this RUN layer: BuildKit caches a
+# RUN layer by its inputs, so an unchanged value is a cache hit (no rebuild)
+# and a changed value forces the upgrade to re-run.
+# MUSL_MIN_VERSION is a hard floor on top of apk upgrade: apk fails the build
+# instead of silently shipping an older musl if the repository index lacks a
+# fixed version (stale mirror, pinned snapshot, cache-only builder).
 ARG APK_REFRESH=none
-RUN apk upgrade --no-cache
+ARG MUSL_MIN_VERSION=1.2.6-r6
+# APK_REFRESH must appear in the command itself: it is the only thing that
+# changes the RUN cache key, which is what makes the weekly CI value re-run
+# the upgrade instead of reusing a layer built against an older index.
+RUN echo "Alpine package refresh: ${APK_REFRESH}" && \
+    apk upgrade --no-cache && \
+    apk add --no-cache --upgrade "musl>=${MUSL_MIN_VERSION}" && \
+    apk info -v musl
 
 # Set labels for the image
 LABEL maintainer="andrianey"
@@ -139,7 +160,11 @@ COPY --from=builder_dnsproxy /tmp/root.hints /var/lib/unbound/root.hints
 RUN mkdir -p /var/lib/unbound/ /etc/unbound/ && \
     chown -R adguard:adguard /var/lib/unbound /etc/unbound && \
     setcap 'cap_net_bind_service=+ep' /usr/sbin/unbound && \
-    /usr/sbin/unbound -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /tmp/unbound_version || echo "unknown" > /tmp/unbound_version
+    { /usr/sbin/unbound -V 2>&1 || true; } > /tmp/unbound_version.log && \
+    sed -n 's/^[Vv]ersion[[:space:]]\+\([0-9][0-9.]*\).*/\1/p' /tmp/unbound_version.log | head -n 1 > /tmp/unbound_version && \
+    { [ -s /tmp/unbound_version ] || grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /tmp/unbound_version.log | head -n 1 > /tmp/unbound_version || true; } && \
+    { [ -s /tmp/unbound_version ] || printf 'unknown\n' > /tmp/unbound_version; } && \
+    rm -f /tmp/unbound_version.log
 
 COPY unbound/unbound.conf /etc/unbound/unbound.conf
 
