@@ -90,7 +90,12 @@ FROM alpine:3.24
 
 # The alpine:3.24 tag is a frozen snapshot (built 2026-09-17) that ships
 # zlib 1.3.2-r0 and musl 1.2.6-r3, while the v3.24 repository now has
-# zlib 1.3.2-r1 (CVE-2026-85091) and musl 1.2.6-r6 (CVE-2026-107891).
+# zlib 1.3.2-r1 (CVE-2026-85091). musl is NOT fixed there: v3.24/main
+# publishes only musl 1.2.6-r3, so CVE-2026-107891 remains open on this
+# base. musl 1.2.6-r6 exists only in Alpine edge. MUSL_MIN_VERSION is
+# therefore pinned to what v3.24 actually ships, so the build succeeds
+# instead of failing forever; raise it to 1.2.6-r6 once Alpine backports
+# the fix, or when this base moves to a stable release that carries it.
 # APK_REFRESH is purely a cache key for this RUN layer: BuildKit caches a
 # RUN layer by its inputs, so an unchanged value is a cache hit (no rebuild)
 # and a changed value forces the upgrade to re-run.
@@ -98,7 +103,7 @@ FROM alpine:3.24
 # instead of silently shipping an older musl if the repository index lacks a
 # fixed version (stale mirror, pinned snapshot, cache-only builder).
 ARG APK_REFRESH=none
-ARG MUSL_MIN_VERSION=1.2.6-r6
+ARG MUSL_MIN_VERSION=1.2.6-r3
 # APK_REFRESH must appear in the command itself: it is the only thing that
 # changes the RUN cache key, which is what makes the weekly CI value re-run
 # the upgrade instead of reusing a layer built against an older index.
