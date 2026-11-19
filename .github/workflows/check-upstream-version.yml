@@ -30,30 +30,67 @@ jobs:
       - name: Get Latest Version and Compare
         id: version_check
         run: |
-          # 1. Fetch Upstream Data (MATCHES YOUR GITLAB LOGIC)
-          if [[ "${{ matrix.type }}" == "stable" ]]; then
-            UPSTREAM=$(curl -s https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
-          else
-            echo "==> Pulling official edge image to inspect internal version..."
-            docker pull adguard/adguardhome:edge > /dev/null
-            
-            # This is your EXACT GitLab logic adapted for GitHub Actions:
-            UPSTREAM=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome adguard/adguardhome:edge --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1)
-          fi
+          VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+'
 
-          # 2. Extract CLEAN version from README.md using regex (not column position)
+          # 1. Fetch Upstream Data (MATCHES YOUR GITLAB LOGIC)
+          # Returns a version string, or an empty/invalid value on failure.
+          fetch_upstream() {
+            if [[ "${{ matrix.type }}" == "stable" ]]; then
+              curl -s --max-time 30 https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest \
+                | jq -r '.tag_name // empty'
+            else
+              echo "==> Pulling official edge image to inspect internal version..." >&2
+              docker pull adguard/adguardhome:edge > /dev/null 2>&1 || return 1
+
+              # This is your EXACT GitLab logic adapted for GitHub Actions:
+              docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome adguard/adguardhome:edge --version 2>&1 \
+                | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1
+            fi
+          }
+
+          # 2. Fetch upstream with retries; only accept a real version
+          #    (the probe can return null/empty, e.g. API rate limits).
+          UPSTREAM=""
+          for attempt in 1 2 3; do
+            if [[ $attempt -gt 1 ]]; then
+              echo "Retrying upstream fetch in 5s (attempt $attempt/3)..."
+              sleep 5
+            fi
+
+            UPSTREAM=$(fetch_upstream || true)
+            if [[ "$UPSTREAM" =~ $VERSION_REGEX ]]; then
+              break
+            fi
+
+            echo "⚠️ Invalid upstream version on attempt $attempt/3: '$UPSTREAM'"
+            UPSTREAM=""
+          done
+
+          # 3. Extract CLEAN version from README.md using regex (not column position)
           BRANCH_NAME="${{ matrix.branch }}"
-          RAW_ROW=$(grep "| \`$BRANCH_NAME\` |" README.md)
-          
+          RAW_ROW=$(grep "| \`$BRANCH_NAME\` |" README.md || true)
+
           # Match the AdGuardHome version badge pattern: ![vX.Y.Z...](...)
           # This is robust to table column changes
-          CURRENT=$(echo "$RAW_ROW" | grep -oP '\!\[v[0-9]+\.[0-9]+\.[0-9]+[^\]]*\]' | head -1 | sed 's/!\[//;s/\]//' | xargs)
+          CURRENT=$(echo "$RAW_ROW" | grep -oP '\!\[v[0-9]+\.[0-9]+\.[0-9]+[^\]]*\]' | head -1 | sed 's/!\[//;s/\]//' | xargs || true)
 
-          echo "Upstream (from Binary): $UPSTREAM"
-          echo "README (from Table):   $CURRENT"
+          echo "Upstream (from Binary): '$UPSTREAM'"
+          echo "README (from Table):   '$CURRENT'"
 
-          # 3. Decision Logic
-          if [[ -n "$UPSTREAM" ]] && [[ "$UPSTREAM" == "$CURRENT" ]]; then
+          # 4. Decision Logic — never trigger on a failed/invalid probe
+          if [[ ! "$UPSTREAM" =~ $VERSION_REGEX ]]; then
+            echo "❌ Could not determine a valid upstream version after 3 attempts. Skipping build for $BRANCH_NAME."
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [[ -z "$CURRENT" ]]; then
+            echo "❌ Could not determine current version from README for $BRANCH_NAME. Skipping build."
+            echo "should_trigger=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          if [[ "$UPSTREAM" == "$CURRENT" ]]; then
             echo "✅ Exact match. Skipping build for $BRANCH_NAME."
             echo "should_trigger=false" >> $GITHUB_OUTPUT
           else
