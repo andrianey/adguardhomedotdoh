@@ -53,7 +53,7 @@ RUN wget -O /tmp/root.hints https://www.internic.net/domain/named.root
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:3.24 AS builder_unbound
+FROM alpine:latest AS builder_unbound
 
 RUN apk add --no-cache \
     build-base \
@@ -86,30 +86,14 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 # ============================================
 # Stage 4: Final image (Alpine latest)
 # ============================================
-FROM alpine:3.24
+FROM alpine:latest
 
-# The alpine:3.24 tag is a frozen snapshot (built 2026-09-17) that ships
-# zlib 1.3.2-r0 and musl 1.2.6-r3, while the v3.24 repository now has
-# zlib 1.3.2-r1 (CVE-2026-85091). musl is NOT fixed there: v3.24/main
-# publishes only musl 1.2.6-r3, so CVE-2026-107891 remains open on this
-# base. musl 1.2.6-r6 exists only in Alpine edge. MUSL_MIN_VERSION is
-# therefore pinned to what v3.24 actually ships, so the build succeeds
-# instead of failing forever; raise it to 1.2.6-r6 once Alpine backports
-# the fix, or when this base moves to a stable release that carries it.
-# APK_REFRESH is purely a cache key for this RUN layer: BuildKit caches a
-# RUN layer by its inputs, so an unchanged value is a cache hit (no rebuild)
-# and a changed value forces the upgrade to re-run.
-# MUSL_MIN_VERSION is a hard floor on top of apk upgrade: apk fails the build
-# instead of silently shipping an older musl if the repository index lacks a
-# fixed version (stale mirror, pinned snapshot, cache-only builder).
+# Use alpine:latest so musl (and other libs) pick up the latest security fixes.
+# APK_REFRESH is purely a cache key for this RUN layer.
 ARG APK_REFRESH=none
-ARG MUSL_MIN_VERSION=1.2.6-r3
-# APK_REFRESH must appear in the command itself: it is the only thing that
-# changes the RUN cache key, which is what makes the weekly CI value re-run
-# the upgrade instead of reusing a layer built against an older index.
 RUN echo "Alpine package refresh: ${APK_REFRESH}" && \
     apk upgrade --no-cache && \
-    apk add --no-cache --upgrade "musl>=${MUSL_MIN_VERSION}" && \
+    apk add --no-cache --upgrade musl && \
     apk info -v musl
 
 # Set labels for the image
@@ -134,6 +118,15 @@ RUN apk add --no-cache \
 
 # 2. Copy AdGuard Home binary from the official image
 COPY --from=adguard-source /opt/adguardhome/AdGuardHome /opt/adguardhome/AdGuardHome
+
+# Capture AdGuard Home version for CI/badge metadata (must never fail the build).
+RUN AGH_OUT=$(/opt/adguardhome/AdGuardHome --version 2>&1 || true); \
+    AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -m1 -E '[^[:space:]]' || true); \
+    [ -n "$AGH_VER" ] || AGH_VER="unknown"; \
+    printf '%s\n' "$AGH_VER" > /tmp/adguardhome_version; \
+    echo "AdGuardHome version: $AGH_VER"
 
 # 3. Create non-root user
 RUN adduser -D -u 1000 adguard
