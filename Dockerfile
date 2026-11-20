@@ -166,6 +166,15 @@ RUN mkdir -p /opt/adguardhome/conf \
 # Copy AdGuard Home from Alpine builder
 COPY --from=builder_adguard /usr/local/bin/AdGuardHome /opt/adguardhome/AdGuardHome
 
+# Capture AdGuard Home version for CI/badge metadata (must never fail the build).
+RUN AGH_OUT=$(/opt/adguardhome/AdGuardHome --version 2>&1 || true); \
+    AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n1 || true); \
+    [ -n "$AGH_VER" ] || AGH_VER=$(printf '%s\n' "$AGH_OUT" | grep -m1 -E '[^[:space:]]' || true); \
+    [ -n "$AGH_VER" ] || AGH_VER="unknown"; \
+    printf '%s\n' "$AGH_VER" > /tmp/adguardhome_version; \
+    echo "AdGuardHome version: $AGH_VER"
+
 # Copy dnsproxy from helpers builder
 COPY --from=builder_helpers /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=builder_helpers /tmp/dnsproxy_version /tmp/dnsproxy_version
