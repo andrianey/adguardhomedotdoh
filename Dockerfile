@@ -6,7 +6,7 @@ FROM adguard/adguardhome:latest AS adguard-source
 # ============================================
 # Stage 2: Helper stage to download dnsproxy
 # ============================================
-FROM alpine:3.24 AS builder_helpers
+FROM alpine:latest AS builder_helpers
 
 # Explicitly upgrade musl to pick up the CVE fix (>= 1.2.6-r6). This is a
 # separate layer so it still runs even if other apk layers are cached.
@@ -69,7 +69,7 @@ RUN set -eux; \
 # ============================================
 # Stage 3: Unbound Builder (Compiled with Redis/Valkey support)
 # ============================================
-FROM alpine:3.24 AS builder_unbound
+FROM alpine:latest AS builder_unbound
 
 # Explicitly upgrade musl to pick up the CVE fix (>= 1.2.6-r6). This is a
 # separate layer so it still runs even if other apk layers are cached.
@@ -105,7 +105,7 @@ RUN wget https://www.nlnetlabs.nl/downloads/unbound/unbound-latest.tar.gz \
 # ============================================
 # Stage 4: Final image (Alpine latest)
 # ============================================
-FROM alpine:3.24
+FROM alpine:latest
 
 # The alpine:3.24 tag is a frozen snapshot (built 2026-09-17) that ships
 # zlib 1.3.2-r0, while the v3.24 repository now has 1.3.2-r1, which fixes
