@@ -45,10 +45,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     printf '%s\n' "$VERSION" > /tmp/dnsproxy_version; \
     printf '%s\n' "$REVISION" > /tmp/dnsproxy_revision; \
     go build -trimpath -v -ldflags "-s -w \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.version=${VERSION} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.revision=${REVISION} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.branch=${BRANCH} \
-    -X github.com/AdguardTeam/dnsproxy/internal/version.committime=${COMMIT_TIME}" \
+    -X github.com/AdguardTeam/golibs/version.version=${VERSION} \
+    -X github.com/AdguardTeam/golibs/version.revision=${REVISION} \
+    -X github.com/AdguardTeam/golibs/version.branch=${BRANCH} \
+    -X github.com/AdguardTeam/golibs/version.committime=${COMMIT_TIME}" \
     -o /usr/local/bin/dnsproxy .
 
 # Download root.hints for Unbound
@@ -102,35 +102,45 @@ RUN mkdir -p /output/lib \
 FROM cgr.dev/chainguard/wolfi-base:latest AS final
 
 # Inject component versions captured in builder stages as build args, then as labels
-ARG ADGUARDHOME_VERSION="edge"
+
+# --- Image metadata -------------------------------------------------------
+# Version ARGs are supplied by CI from the inspect-image built just before this
+# one, so the labels carry real versions instead of "unknown". The defaults let
+# a plain `docker build .` still work without them.
+ARG ADGUARDHOME_VERSION="unknown"
 ARG DNSPROXY_VERSION="unknown"
 ARG DNSPROXY_REVISION="unknown"
 ARG UNBOUND_VERSION="unknown"
-ARG BUILD_DATE
-ARG VCS_REF
-ARG BRANCH
+ARG BUILD_DATE=""
+ARG VCS_REF=""
+ARG BRANCH=""
 
+# Exactly one key per label. Docker keeps the LAST occurrence of a duplicated
+# key, which is how this image previously shipped the wrong title and a
+# gitlab.com source. The wolfi base also carries Chainguard's own vendor /
+# authors / url labels; they are re-declared here so `docker inspect` attributes
+# the image to us rather than to Chainguard.
 LABEL maintainer="andrianey"
-LABEL name="adguardhome-doh-dot-wolfi-hardened"
-LABEL description="Hardened AdGuard Home with DoT/DoH support using dnsproxy, Unbound, Valkey on Wolfi"
-LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
 LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Hardened-Wolfi)"
 LABEL org.opencontainers.image.description="Maximum security: Wolfi base + non-root + source builds"
-
-# OCI standard labels
-LABEL org.opencontainers.image.title="AdGuardHome DoH/DoT"
-LABEL org.opencontainers.image.description="AdGuard Home with Unbound + dnsproxy on Wolfi"
-LABEL org.opencontainers.image.source="https://gitlab.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.url="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.documentation="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.vendor="andrianey"
+LABEL org.opencontainers.image.authors="andrianey"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.version="${ADGUARDHOME_VERSION}"
 LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.ref.name="${BRANCH}"
-
-# Component version labels (inspectable via: docker inspect <image> | grep label)
 LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
 LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
 LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
 LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
+
+# OCI standard labels
+
+# Component version labels (inspectable via: docker inspect <image> | grep label)
 
 # Install runtime dependencies from Wolfi repos with CVE-aware upgrades
 RUN set -eux; \
