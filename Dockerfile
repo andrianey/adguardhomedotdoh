@@ -145,7 +145,7 @@ LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 # Install runtime dependencies from Wolfi repos with CVE-aware upgrades
 RUN set -eux; \
     apk update; \
-    apk upgrade --available --no-cache; \
+    apk upgrade --no-cache; \
     apk add --no-cache \
       bash \
       ca-certificates \
@@ -162,7 +162,8 @@ RUN set -eux; \
       netcat-openbsd; \
     apk audit --update-cache --no-cache --repository https://packages.wolfi.dev/os \
       | tee /tmp/apk-audit.log \
-      || true
+      || true; \
+      rm -f /tmp/apk-audit.log
 
 # Create non-root user
 RUN groupadd -r adguard && \
