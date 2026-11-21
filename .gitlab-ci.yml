@@ -70,33 +70,29 @@ build_auto:
     # buildx cache, so the extra pass is mostly a cache hit.
     echo "==> Building inspect image for version metadata..."
     mkdir -p "$BUILDX_CACHE_DIR"
-    docker buildx build --platform linux/amd64 --provenance=false --pull --load \
+    docker buildx build --provenance=false --pull --load \
       --build-arg APK_REFRESH=$(date +%G-%V) \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
       -t inspect-image .
 
-    AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
-    if [ -z "$AGH_VER" ]; then
-      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
-    fi
-    [ -z "$AGH_VER" ] && AGH_VER="edge"
-
-    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
-    if [ -z "$DNSPROXY_VER" ]; then
-      DNSPROXY_VER=$(docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
-    fi
-    [ -z "$DNSPROXY_VER" ] && DNSPROXY_VER="n/a"
-
-    DNSPROXY_REV=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_revision 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    # Read the version files the image records at build time. These need no
+    # execution, so they work regardless of the runner/arch and cannot silently
+    # fall back to a plausible-looking wrong value.
+    AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | tr -d '\n\r\t ' || true)
+    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r\t ' || true)
+    DNSPROXY_REV=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_revision 2>/dev/null | tr -d '\n\r\t ' || true)
+    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r\t ' || true)
     [ -n "$DNSPROXY_REV" ] || DNSPROXY_REV="unknown"
 
-    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
-    if [ -z "$UNBOUND_VER" ]; then
-      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-      [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
-    fi
-
+    # No silent fallbacks: a missing version is a real defect, not "edge" or "n/a".
+    for pair in "ADGUARDHOME:$AGH_VER" "DNSPROXY:$DNSPROXY_VER" "UNBOUND:$UNBOUND_VER"; do
+      name=${pair%%:*}; val=${pair#*:}
+      if [ -z "$val" ]; then
+        echo "ERROR: $name version file missing/empty in the built image -- refusing to publish wrong labels"
+        exit 1
+      fi
+    done
     docker rmi inspect-image 2>/dev/null || true
 
     echo "==> Building and pushing multi-platform image..."
