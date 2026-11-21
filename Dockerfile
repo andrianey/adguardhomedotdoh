@@ -119,11 +119,40 @@ RUN apk upgrade --no-cache
 RUN apk add --no-cache --upgrade musl
 
 # Set labels for the image
+# --- Image metadata -------------------------------------------------------
+# Version ARGs are supplied by CI from the inspect-image built just before this
+# one, so the labels carry real versions instead of "unknown". The defaults let
+# a plain `docker build .` still work without them.
+ARG ADGUARDHOME_VERSION="unknown"
+ARG DNSPROXY_VERSION="unknown"
+ARG DNSPROXY_REVISION="unknown"
+ARG UNBOUND_VERSION="unknown"
+ARG BUILD_DATE=""
+ARG VCS_REF=""
+ARG BRANCH=""
+
+# Exactly one key per label. Docker keeps the LAST occurrence of a duplicated
+# key, which is how this image previously shipped the wrong title and a
+# gitlab.com source. The wolfi base also carries Chainguard's own vendor /
+# authors / url labels; they are re-declared here so `docker inspect` attributes
+# the image to us rather than to Chainguard.
 LABEL maintainer="andrianey"
-LABEL description="AdGuard Home with DoH/DoT support (dnsproxy, Unbound, Valkey)"
-LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
 LABEL org.opencontainers.image.title="AdGuard Home DoH/DoT (Latest)"
 LABEL org.opencontainers.image.description="Standard AdGuard Home with Unbound, dnsproxy, and Valkey"
+LABEL org.opencontainers.image.source="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.url="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.documentation="https://github.com/andrianey/adguardhomedotdoh"
+LABEL org.opencontainers.image.vendor="andrianey"
+LABEL org.opencontainers.image.authors="andrianey"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.version="${ADGUARDHOME_VERSION}"
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.ref.name="${BRANCH}"
+LABEL org.label-schema.adguardhome.version="${ADGUARDHOME_VERSION}"
+LABEL org.label-schema.dnsproxy.version="${DNSPROXY_VERSION}"
+LABEL org.label-schema.dnsproxy.revision="${DNSPROXY_REVISION}"
+LABEL org.label-schema.unbound.version="${UNBOUND_VERSION}"
 
 # 1. Install dependencies
 RUN apk add --no-cache \

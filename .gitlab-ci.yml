@@ -63,37 +63,64 @@ build_auto:
       PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6"
     fi
 
-    echo "==> Building and pushing multi-platform image..."
+    # Two passes. A local single-arch build runs first so the component versions
+    # are known BEFORE the image that carries them is built: labels are fixed at
+    # build time, so --build-arg is the only way they can hold real values
+    # instead of "unknown". The second build reuses the first's layers from the
+    # buildx cache, so the extra pass is mostly a cache hit.
+    echo "==> Building inspect image for version metadata..."
     mkdir -p "$BUILDX_CACHE_DIR"
+    docker buildx build --platform linux/amd64 --provenance=false --pull --load \
+      --build-arg APK_REFRESH=$(date +%G-%V) \
+      --cache-from type=local,src=$BUILDX_CACHE_DIR \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      -t inspect-image .
+
+    AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    if [ -z "$AGH_VER" ]; then
+      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+    [ -z "$AGH_VER" ] && AGH_VER="edge"
+
+    DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    if [ -z "$DNSPROXY_VER" ]; then
+      DNSPROXY_VER=$(docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+    [ -z "$DNSPROXY_VER" ] && DNSPROXY_VER="n/a"
+
+    DNSPROXY_REV=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_revision 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    [ -n "$DNSPROXY_REV" ] || DNSPROXY_REV="unknown"
+
+    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    if [ -z "$UNBOUND_VER" ]; then
+      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+      [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
+    fi
+
+    docker rmi inspect-image 2>/dev/null || true
+
+    echo "==> Building and pushing multi-platform image..."
     docker buildx build \
       --platform "$PLATFORMS" \
       --provenance=false \
       --build-arg APK_REFRESH=$(date +%G-%V) \
+      --build-arg ADGUARDHOME_VERSION="$AGH_VER" \
+      --build-arg DNSPROXY_VERSION="$DNSPROXY_VER" \
+      --build-arg DNSPROXY_REVISION="$DNSPROXY_REV" \
+      --build-arg UNBOUND_VERSION="$UNBOUND_VER" \
+      --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --build-arg VCS_REF="$CI_COMMIT_SHA" \
+      --build-arg BRANCH="$CI_COMMIT_BRANCH" \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
 
-    echo "==> Inspecting versions from pushed image..."
-    docker pull --platform linux/amd64 $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto
-
-    AGH_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/adguardhome_version 2>/dev/null | tr -d '\n\r ' || true)
-    if [ -z "$AGH_VER" ]; then
-      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
-    fi
-    [ -z "$AGH_VER" ] && AGH_VER="edge"
-    DNSPROXY_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
-
-    UNBOUND_VER=$(docker run --rm --entrypoint=cat $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
-    if [ -z "$UNBOUND_VER" ]; then
-      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-      [ -z "$UNBOUND_VER" ] && UNBOUND_VER="n/a"
-    fi
-
     {
       echo "AGH_VER=$(echo "$AGH_VER" | tr -d '\n\r')"
       echo "UNBOUND_VER=$(echo "$UNBOUND_VER" | tr -d '\n\r')"
       echo "DNSPROXY_VER=$(echo "$DNSPROXY_VER" | tr -d '\n\r')"
+      echo "DNSPROXY_REV=$(echo "$DNSPROXY_REV" | tr -d '\n\r')"
     } > versions.env
   artifacts:
     reports:
