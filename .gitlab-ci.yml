@@ -75,20 +75,33 @@ build_auto:
     # grep/head/tr exit 0 even on an empty match, so a pipeline fallback
     # (`... | grep ... || echo fallback`) would never fire and an empty value
     # would reach versions.env and the README badge.
-    # Read the version files the image records at build time. These need no
-    # execution, so they work regardless of the runner/arch and cannot silently
-    # fall back to a plausible-looking wrong value.
+    # Derive versions from the inspect image. Prefer the version file the image
+    # records; fall back to running the binary (the inspect image is now built for
+    # the runner's native arch, so no QEMU); fail the job rather than publish a
+    # plausible-looking wrong label.
     AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | tr -d '\n\r\t ' || true)
+    if [ -z "$AGH_VER" ]; then
+      AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r\t ' || true)
+    if [ -z "$DNSPROXY_VER" ]; then
+      DNSPROXY_VER=$(docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
+    fi
+
     DNSPROXY_REV=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_revision 2>/dev/null | tr -d '\n\r\t ' || true)
-    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r\t ' || true)
     [ -n "$DNSPROXY_REV" ] || DNSPROXY_REV="unknown"
 
-    # No silent fallbacks: a missing version is a real defect, not "edge" or "n/a".
+    UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r\t ' || true)
+    if [ -z "$UNBOUND_VER" ]; then
+      UNBOUND_VER=$(docker run --rm -e LD_LIBRARY_PATH=/usr/local/lib:/usr/lib --entrypoint=/usr/sbin/unbound inspect-image -V 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    fi
+
+    # Fail loudly instead of publishing a wrong label.
     for pair in "ADGUARDHOME:$AGH_VER" "DNSPROXY:$DNSPROXY_VER" "UNBOUND:$UNBOUND_VER"; do
       name=${pair%%:*}; val=${pair#*:}
       if [ -z "$val" ]; then
-        echo "ERROR: $name version file missing/empty in the built image -- refusing to publish wrong labels"
+        echo "ERROR: $name version could not be determined from the built image"
         exit 1
       fi
     done
