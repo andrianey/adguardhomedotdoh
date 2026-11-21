@@ -171,6 +171,9 @@ RUN mkdir -p /opt/adguardhome/conf /opt/adguardhome/work && \
 # 5. Copy dnsproxy from builder
 COPY --from=builder_dnsproxy /usr/local/bin/dnsproxy /usr/local/bin/dnsproxy
 COPY --from=builder_dnsproxy /tmp/dnsproxy_version /tmp/dnsproxy_version
+# The revision is written by the builder next to the version; without this
+# COPY the CI probe reads nothing and the label falls back to "unknown".
+COPY --from=builder_dnsproxy /tmp/dnsproxy_revision /tmp/dnsproxy_revision
 RUN chown adguard:adguard /usr/local/bin/dnsproxy && \
     chmod 755 /usr/local/bin/dnsproxy && \
     setcap 'cap_net_bind_service=+ep' /usr/local/bin/dnsproxy
