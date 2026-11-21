@@ -67,7 +67,7 @@ build_auto:
     mkdir -p "$BUILDX_CACHE_DIR"
     docker buildx build --platform linux/amd64 --provenance=false --pull --load \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
       --build-arg APK_REFRESH=$(date +%G-%V) \
       -t inspect-image .
 
@@ -131,7 +131,7 @@ build_auto:
       --build-arg VCS_REF="$CI_COMMIT_SHA" \
       --build-arg BRANCH="$CI_COMMIT_BRANCH" \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
   artifacts:
