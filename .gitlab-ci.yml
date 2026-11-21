@@ -73,6 +73,8 @@ build_auto:
 
     AGH_VER=$(docker run --rm --entrypoint=/opt/adguardhome/AdGuardHome inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "edge")
     DNSPROXY_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_version 2>/dev/null | tr -d '\n\r ' || docker run --rm --entrypoint=/usr/local/bin/dnsproxy inspect-image --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+[^ ]*' | head -1 || echo "n/a")
+    DNSPROXY_REV=$(docker run --rm --entrypoint=cat inspect-image /tmp/dnsproxy_revision 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
+    [ -n "$DNSPROXY_REV" ] || DNSPROXY_REV="unknown"
 
     UNBOUND_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/unbound_version 2>/dev/null | tr -d '\n\r ' || true)
     if [ -z "$UNBOUND_VER" ]; then
@@ -86,6 +88,7 @@ build_auto:
       echo "AGH_VER=$(echo "$AGH_VER" | tr -d '\n\r')"
       echo "UNBOUND_VER=$(echo "$UNBOUND_VER" | tr -d '\n\r')"
       echo "DNSPROXY_VER=$(echo "$DNSPROXY_VER" | tr -d '\n\r')"
+      echo "DNSPROXY_REV=$(echo "$DNSPROXY_REV" | tr -d '\n\r')"
     } > versions.env
 
     echo "==> Pushing multi-platform image..."
@@ -94,6 +97,13 @@ build_auto:
       --platform "$PLATFORMS" \
       --provenance=false \
       --build-arg APK_REFRESH=$(date +%G-%V) \
+      --build-arg ADGUARDHOME_VERSION="$AGH_VER" \
+      --build-arg DNSPROXY_VERSION="$DNSPROXY_VER" \
+      --build-arg DNSPROXY_REVISION="$DNSPROXY_REV" \
+      --build-arg UNBOUND_VERSION="$UNBOUND_VER" \
+      --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --build-arg VCS_REF="$CI_COMMIT_SHA" \
+      --build-arg BRANCH="$CI_COMMIT_BRANCH" \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
       --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
