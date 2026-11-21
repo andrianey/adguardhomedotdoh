@@ -73,7 +73,7 @@ build_auto:
     docker buildx build --platform linux/amd64 --provenance=false --pull --load \
       --build-arg APK_REFRESH=$(date +%G-%V) \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
       -t inspect-image .
 
     AGH_VER=$(docker run --rm --entrypoint=cat inspect-image /tmp/adguardhome_version 2>/dev/null | head -n 1 | tr -d '\n\r\t ' || true)
@@ -112,7 +112,7 @@ build_auto:
       --build-arg VCS_REF="$CI_COMMIT_SHA" \
       --build-arg BRANCH="$CI_COMMIT_BRANCH" \
       --cache-from type=local,src=$BUILDX_CACHE_DIR \
-      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=min \
+      --cache-to type=local,dest=$BUILDX_CACHE_DIR,mode=max \
       -t $IMAGE_NAME:${CI_COMMIT_BRANCH}-auto \
       --push .
 
